@@ -3,6 +3,9 @@ import { createMaterials } from './Materials.js';
 import { Lighting } from './Lighting.js';
 import { Props } from './Props.js';
 import { Door } from '../objects/Door.js';
+import { Keypad } from '../objects/Keypad.js';
+import { Drawer } from '../objects/Drawer.js';
+import { evaluateKeypadCode } from '../puzzles/CodeSheet.js';
 
 /**
  * Laboratory - builds the whole environment shell and exposes:
@@ -145,6 +148,22 @@ export class Laboratory {
       block: false,
     });
 
+    // Phase 7: the drawer gains behaviour, the keypad gains its solution, and
+    // the key inside the drawer becomes a pickup target.
+    this.drawer = new Drawer(this.desk.userData.drawer, { openDistance: 0.55 });
+    this.drawerKey = this.desk.userData.drawerKey;
+
+    // The answer is derived from the note, so editing the note changes the code.
+    this.keypadSolution = evaluateKeypadCode();
+    this.keypad = new Keypad({
+      bodyMaterial: this.materials.darkMetal,
+      keyMaterial: this.materials.metal,
+      solution: this.keypadSolution,
+    });
+    // Mounted on the pedestal front, to the right of the drawer front.
+    this.keypad.group.position.set(-5.5 - 1.1 + 0.52, 0.62, 0.55);
+    this.group.add(this.keypad.group);
+
     p.add(g, p.buildChair(), c, { x: -4.1, z: 0.3, rotY: -Math.PI / 2 });
 
     p.add(g, p.buildCrates(), c, { block: true });
@@ -172,6 +191,7 @@ export class Laboratory {
 
   update(dt) {
     this.door.update(dt);
+    this.drawer.update(dt);
     this.lighting.update(dt);
   }
 }

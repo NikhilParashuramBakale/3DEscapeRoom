@@ -136,3 +136,57 @@ state.on('hasKey', () => notified++);
 state.set('hasKey', false);
 state.set('hasKey', false); // same value again - must NOT re-notify
 console.log('\nlistener fired once for a real change:', notified === 1, `(fired ${notified})`);
+
+console.log('\n--- Phase 7: keypad lock + drawer ---');
+// The lock logic is pure, so it is tested without the DOM/Three scene.
+import { Drawer } from '../src/objects/Drawer.js';
+
+const SOLUTION = answer; // derived from the note in the test above
+
+/** Minimal stand-in for the Keypad's lock logic (no canvas required). */
+const makeKeypad = (solution) => ({
+  solution,
+  isUnlocked: false,
+  displayValue: '',
+  submit() {
+    if (this.isUnlocked) return { correct: true, unlocked: true };
+    const correct =
+      this.solution !== null && this.displayValue !== '' &&
+      Number(this.displayValue) === Number(this.solution);
+    if (correct) this.isUnlocked = true;
+    this.displayValue = '';
+    return { correct, unlocked: this.isUnlocked };
+  },
+});
+
+const pad = makeKeypad(SOLUTION);
+console.log('solution derived from the note:', SOLUTION, '(expect 24)');
+
+pad.displayValue = '0000';
+console.log('wrong code  ->', JSON.stringify(pad.submit()), '(expect correct:false)');
+console.log('entry wiped after failure   :', JSON.stringify(pad.displayValue), '(expect "")');
+
+pad.displayValue = String(SOLUTION);
+const win = pad.submit();
+console.log('right code  ->', JSON.stringify(win), '(expect correct:true)');
+console.log('stays unlocked on resubmit  :', JSON.stringify(pad.submit()), '(expect unlocked:true)');
+
+// A keypad with no derivable answer must never accept anything.
+const broken = makeKeypad(null);
+broken.displayValue = '24';
+console.log('no solution ->', JSON.stringify(broken.submit()), '(expect correct:false)');
+
+// Drawer lock state machine.
+const drawerGroup = new T.Group();
+const drawer = new Drawer(drawerGroup, { openDistance: 0.55 });
+console.log('\ndrawer starts locked:', drawer.isLocked === true);
+console.log('locked drawer refuses to open:', drawer.open() === false);
+drawer.unlock();
+console.log('after unlock, open() succeeds:', drawer.open() === true, '| isOpen:', drawer.isOpen);
+
+// The slide is animated, so assert it converges toward the open position.
+for (let i = 0; i < 120; i++) drawer.update(1 / 60);
+console.log('slides toward +Z after 2s:', drawer.group.position.z.toFixed(2), '(expect ~0.55)');
+drawer.close();
+for (let i = 0; i < 120; i++) drawer.update(1 / 60);
+console.log('closes back to 0         :', drawer.group.position.z.toFixed(2), '(expect 0.00)');

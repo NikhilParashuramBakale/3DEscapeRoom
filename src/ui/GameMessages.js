@@ -126,9 +126,9 @@ const MAX_VISIBLE = 3;
  * entries here rather than editing the UI.
  */
 export const OBJECTIVES = [
-  { flag: 'hasReadCodeSheet', text: 'Search the laboratory for a way out.' },
-  { flag: 'codeSolved', text: 'Use the note from the desk to open the drawer.' },
-  { flag: 'hasKey', text: 'Take the key from the drawer.' },
+  { flag: 'hasReadCodeSheet', text: 'Find the lab note on the desk.' },
+  { flag: 'codeSolved', text: 'Work out the code and use the pedestal keypad.' },
+  { flag: 'hasKey', text: 'Open the desk drawer and take the key.' },
   { flag: 'gearPuzzleSolved', text: 'Restore power to the machine on the east wall.' },
   { flag: 'doorUnlocked', text: 'Unlock the exit door and escape.' },
   { flag: 'escaped', text: '', doneText: 'Escaped.' },

@@ -8,6 +8,7 @@ import { InteractionPrompt } from '../ui/InteractionPrompt.js';
 import { InteractionManager } from '../interaction/InteractionManager.js';
 import { ReadingPanel } from '../ui/ReadingPanel.js';
 import { GameMessages } from '../ui/GameMessages.js';
+import { KeypadPanel } from '../ui/KeypadPanel.js';
 import { CODE_SHEET_LINES, CODE_SHEET_TITLE, CODE_SHEET_HINT } from '../puzzles/CodeSheet.js';
 
 /**
@@ -43,6 +44,11 @@ export class Game {
 
     // Player-facing text: stacked toasts plus the objective tracker (Phase 6).
     this.messages = new GameMessages(document.getElementById('app'), this.gameState);
+
+    // Numeric keypad for the drawer lock (Phase 7).
+    this.keypadPanel = new KeypadPanel(document.getElementById('app'), {
+      player: this.player,
+    });
 
     // Raycast interaction system (Phase 4).
     this.interactions = new InteractionManager(this.camera, {
@@ -112,10 +118,38 @@ export class Game {
       verb: 'Open',
       label: 'Drawer',
       distance: 2.2,
-      onInteract: () => this.messages.flash('Locked. The keyhole is cold and empty.', { tone: 'bad' }),
+      onInteract: () => {
+        if (lab.drawer.isLocked) {
+          this.messages.flash('Locked. A keypad sits beside the drawer.', { tone: 'bad' });
+          return;
+        }
+        lab.drawer.toggle();
+        if (lab.drawer.isOpen) this._revealDrawerKey();
+      },
     });
     // Aim the forgiving hit sphere at the drawer front rather than the floor.
     drawer.hitbox.position.set(0, 0.5, 0.6);
+
+    // The keypad on the pedestal front.
+    const keypad = this.interactions.register(lab.keypad.group, {
+      verb: 'Use',
+      label: 'Keypad',
+      distance: 2.2,
+      onInteract: () => this._openKeypad(),
+    });
+    keypad.hitbox.position.set(0, 0, 0.12);
+    keypad.hitbox.scale.set(1.1, 1.3, 0.6);
+
+    // The key inside the drawer. Disabled until the drawer is open, so it
+    // cannot be picked up (or raycast) while still hidden.
+    this._keyInteraction = this.interactions.register(lab.drawerKey, {
+      verb: 'Take',
+      label: 'Key',
+      distance: 1.8,
+      onInteract: () => this._takeKey(),
+    });
+    this._keyInteraction.hitbox.scale.set(1.6, 1.6, 1.6);
+    this._keyInteraction.setEnabled(false);
 
     // The programming note lying on the desk (Phase 5).
     const sheet = this.interactions.register(lab.codeSheet, {
@@ -155,14 +189,83 @@ export class Game {
     }
   }
 
+  /**
+   * Open the numeric keypad.
+   *
+   * The correct code is not shown here - the player is meant to work it out
+   * from the note. If they have not read the note yet, say so instead.
+   */
+  _openKeypad() {
+    if (this.laboratory.keypad.isUnlocked) {
+      this.messages.flash('The keypad reads OPEN.', { tone: 'good' });
+      return;
+    }
+
+    this.prompt.hide();
+    this.messages.clear();
+    this.keypadPanel.open({
+      title: 'Pedestal Keypad',
+      prompt: this.gameState.hasReadCodeSheet
+        ? 'Four numbers. The note said to run the drill.'
+        : 'Four numbers. You have not found the note yet.',
+    });
+
+    // The panel only reports presses; this callback owns the decision.
+    this.keypadPanel.onSubmit = (entry) => this._submitKeypadCode(entry);
+    this.keypadPanel.onClose = () => this.prompt.hide();
+  }
+
+  /** Validate the entered code and unlock the drawer on success. */
+  _submitKeypadCode(entry) {
+    const keypad = this.laboratory.keypad;
+    keypad.displayValue = entry;
+
+    const result = keypad.submit();
+
+    if (!result.correct) {
+      this.keypadPanel._entry = '';
+      this.keypadPanel._render();
+      this.keypadPanel.reject();
+      this.keypadPanel.setStatus('Access denied.');
+      this.messages.flash('Wrong code.', { tone: 'bad' });
+      return;
+    }
+
+    // Success: the drawer lock is defeated.
+    this.gameState.set('codeSolved', true);
+    this.laboratory.drawer.unlock();
+    this.laboratory.drawer.open();
+    this._revealDrawerKey();
+
+    this.keypadPanel.setStatus('Access granted.');
+    this.keypadPanel.close();
+    this.messages.flash('The drawer slides open.', { tone: 'good' });
+  }
+
+  /** Make the key visible and pickable once the drawer is open. */
+  _revealDrawerKey() {
+    const lab = this.laboratory;
+    lab.drawerKey.visible = true;
+    this._keyInteraction && this._keyInteraction.setEnabled(true);
+  }
+
+  /** Pick the key up out of the drawer. */
+  _takeKey() {
+    if (this.gameState.hasKey) return;
+
+    this.gameState.set('hasKey', true);
+    this.laboratory.drawerKey.visible = false;
+    this._keyInteraction.setEnabled(false);
+    this.messages.flash('A small brass key.', { tone: 'good' });
+  }
+
   _update(dt, elapsed) {
     this.player.update(dt);
     this.laboratory.update(dt, elapsed);
     this.interactions.update(dt, elapsed);
     this.messages.update(dt);
-    // A document has focus: clear the prompt/crosshair so nothing competes
-    // with the modal for attention.
-    if (this.readingPanel.isOpen) {
+    // A modal has focus: clear the prompt/crosshair so nothing competes.
+    if (this.readingPanel.isOpen || this.keypadPanel.isOpen) {
       this.prompt.hide();
       this.crosshair.setActive(false);
     }

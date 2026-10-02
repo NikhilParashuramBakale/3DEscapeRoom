@@ -93,14 +93,36 @@ export class Props {
     pull.position.set(0, 0.5 + DH / 2 - 0.08, 0.54);
     drawer.add(pull);
 
-    // Small lock plate with a keyhole - the Phase 7 padlock target.
+    // Small lock plate with a keyhole - the keypad replaces this in Phase 7.
     const plate = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.02), m.metal);
     plate.position.set(DW / 2 - 0.1, 0.5 - 0.12, 0.53);
+    plate.name = 'LockPlate';
     drawer.add(plate);
     const keyhole = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.03, 10), m.darkMetal);
     keyhole.rotation.x = Math.PI / 2;
     keyhole.position.set(DW / 2 - 0.1, 0.5 - 0.12, 0.545);
+    keyhole.name = 'Keyhole';
     drawer.add(keyhole);
+
+    // The key the player eventually finds inside (Phase 7). It starts hidden so
+    // it cannot be picked up before the drawer is open.
+    const key = new THREE.Group();
+    key.name = 'DrawerKey';
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.16, 8), m.metal);
+    shaft.rotation.z = Math.PI / 2;
+    key.add(shaft);
+    const bow = new THREE.Mesh(new THREE.TorusGeometry(0.038, 0.011, 8, 14), m.metal);
+    bow.position.x = -0.1;
+    bow.rotation.y = Math.PI / 2;
+    key.add(bow);
+    const bit = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.035, 0.012), m.metal);
+    bit.position.set(0.06, -0.028, 0);
+    key.add(bit);
+    key.position.set(0, 0.34, 0.2);
+    key.rotation.y = 0.5;
+    key.visible = false;
+    drawer.add(key);
+    g.userData.drawerKey = key;
 
     g.add(drawer);
     g.userData.drawer = drawer;

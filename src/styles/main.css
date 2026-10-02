@@ -179,6 +179,141 @@ body,
   transform: scaleX(1.2);
 }
 
+/* ---------- Keypad panel (Phase 7) ---------- */
+#keypad-panel {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(3, 6, 9, 0.72);
+  z-index: 8;
+}
+
+#keypad-panel.open {
+  animation: readingFade 0.18s ease-out;
+}
+
+#keypad-panel.open .keypad-card {
+  animation: readingCardPop 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+.keypad-card {
+  width: min(320px, 100%);
+  padding: 22px 24px 20px;
+  background: var(--panel);
+  border: 1px solid rgba(127, 240, 216, 0.3);
+  border-radius: 6px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  user-select: none;
+}
+
+.keypad-card h2 {
+  margin-bottom: 14px;
+  font-size: 0.9rem;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.keypad-readout {
+  padding: 12px;
+  text-align: center;
+  background: #08110d;
+  border: 1px solid rgba(127, 240, 216, 0.3);
+  border-radius: 4px;
+  color: #7ff0d8;
+  font: 1.5rem Consolas, 'Courier New', monospace;
+  letter-spacing: 0.3em;
+}
+
+/* Rejection shake - re-triggered by removing/re-adding the class. */
+.keypad-readout.shake {
+  animation: keypadShake 0.32s ease-in-out;
+  color: #ff9c9c;
+  border-color: rgba(255, 122, 122, 0.7);
+}
+
+@keyframes keypadShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(3px); }
+}
+
+.keypad-status {
+  min-height: 1.2em;
+  margin-top: 10px;
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  opacity: 0.78;
+}
+
+/* 3 x 4 grid matching the physical prop layout. */
+.keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.keypad-key {
+  padding: 14px 0;
+  background: rgba(20, 28, 34, 0.9);
+  border: 1px solid rgba(127, 240, 216, 0.28);
+  border-radius: 4px;
+  color: var(--text);
+  font: 1rem Consolas, 'Courier New', monospace;
+  cursor: pointer;
+  transition: background-color 0.12s ease, transform 0.08s ease, color 0.12s ease;
+}
+
+.keypad-key:hover {
+  background: rgba(127, 240, 216, 0.16);
+  color: var(--accent);
+}
+
+/* Pressed feedback - a small scale-down transform. */
+.keypad-key:active {
+  transform: scale(0.94);
+}
+
+.keypad-key:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.keypad-key.ok {
+  color: var(--accent);
+  border-color: rgba(127, 240, 216, 0.6);
+}
+
+.keypad-key.clear {
+  color: #ff9c9c;
+}
+
+.keypad-close {
+  margin-top: 16px;
+  width: 100%;
+  padding: 8px 18px;
+  background: transparent;
+  border: 1px solid rgba(127, 240, 216, 0.45);
+  border-radius: 4px;
+  color: var(--accent);
+  font: 0.78rem Consolas, 'Courier New', monospace;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.keypad-close:hover,
+.keypad-close:focus-visible {
+  background: rgba(127, 240, 216, 0.14);
+  outline: none;
+}
+
 /* ---------- Reading panel modal (Phase 5) ---------- */
 #reading-panel {
   position: fixed;
