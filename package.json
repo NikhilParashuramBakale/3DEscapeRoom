@@ -1,0 +1,19 @@
+{
+  "name": "forgotten-lab-3d",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "The Forgotten Laboratory - an interactive 3D escape room built with Three.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node tests/interaction.test.js"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  }
+}

@@ -1,0 +1,376 @@
+:root {
+  --bg: #05070a;
+  --accent: #7ff0d8;
+  --text: #cfd8dc;
+  --panel: rgba(10, 14, 18, 0.82);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+#scene-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------- Boot overlay ---------- */
+#boot-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: radial-gradient(circle at 50% 45%, #0d1620 0%, #05070a 70%);
+  transition: opacity 0.6s ease;
+  z-index: 10;
+}
+
+#boot-overlay.faded {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#boot-overlay h1 {
+  font-size: 1.6rem;
+  letter-spacing: 0.35em;
+  color: var(--accent);
+  text-shadow: 0 0 18px rgba(127, 240, 216, 0.35);
+}
+
+#boot-status {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  letter-spacing: 0.08em;
+}
+
+/* ---------- Debug panel (Phase 1 only) ---------- */
+#debug-panel {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid rgba(127, 240, 216, 0.25);
+  border-radius: 4px;
+  font-family: Consolas, monospace;
+  font-size: 0.75rem;
+  color: var(--accent);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ---------- Crosshair (Minecraft-style "+" point) ---------- */
+#crosshair {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 6;
+  opacity: 0.9;
+  transition: opacity 0.2s ease;
+}
+
+/* Dim the crosshair while the pointer is unlocked (e.g. keypad open) */
+#crosshair:not(.locked) {
+  opacity: 0.2;
+}
+
+#crosshair .ch-v,
+#crosshair .ch-h {
+  position: absolute;
+  background: #ffffff;
+  /* Dark outline keeps it visible against bright surfaces too. */
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+/* Vertical bar of the "+" */
+#crosshair .ch-v {
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 20px;
+  margin-left: -1px;
+}
+
+/* Horizontal bar of the "+" */
+#crosshair .ch-h {
+  top: 50%;
+  left: 0;
+  height: 2px;
+  width: 20px;
+  margin-top: -1px;
+}
+
+/* Highlight when aiming at an interactive object (Phase 4) */
+#crosshair.active .ch-v,
+#crosshair.active .ch-h {
+  background: var(--accent);
+}
+
+#crosshair.active .ch-v {
+  transform: scaleY(1.2);
+
+/* ---------- Interaction prompt ("Press E to ...") ---------- */
+#interaction-prompt {
+  position: fixed;
+  left: 50%;
+  top: calc(50% + 34px);
+  transform: translateX(-50%);
+  padding: 7px 16px;
+  background: rgba(8, 12, 16, 0.78);
+  border: 1px solid rgba(127, 240, 216, 0.4);
+  border-radius: 4px;
+  color: var(--accent);
+  font: 0.82rem Consolas, 'Courier New', monospace;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 6;
+  box-shadow: 0 0 18px rgba(127, 240, 216, 0.15);
+}
+
+/* Pop-in: scale up + fade in (demonstrates the scaling transform in UI) */
+#interaction-prompt.pop {
+  animation: promptPop 0.16s ease-out;
+}
+
+@keyframes promptPop {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+}
+
+}
+
+#crosshair.active .ch-h {
+  transform: scaleX(1.2);
+}
+
+/* ---------- Reading panel modal (Phase 5) ---------- */
+#reading-panel {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(3, 6, 9, 0.72);
+  z-index: 8;
+}
+
+/* The .open class drives the entry animation (fade + slight scale up). */
+#reading-panel.open {
+  animation: readingFade 0.18s ease-out;
+}
+
+@keyframes readingFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+#reading-panel.open .reading-card {
+  animation: readingCardPop 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+@keyframes readingCardPop {
+  from {
+    transform: translateY(10px) scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.reading-card {
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 22px 26px 20px;
+  background: var(--panel);
+  border: 1px solid rgba(127, 240, 216, 0.3);
+  border-radius: 6px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  cursor: default;
+}
+
+.reading-card h2 {
+  margin-bottom: 12px;
+  font-size: 1rem;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.reading-body {
+  padding: 14px 16px;
+  background: #ded4bd;
+  border-radius: 3px;
+  color: #1d2a33;
+  font: 0.86rem/1.55 Consolas, 'Courier New', monospace;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.reading-hint {
+  margin-top: 12px;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  opacity: 0.75;
+}
+
+.reading-close {
+  margin-top: 16px;
+  padding: 8px 18px;
+  background: transparent;
+  border: 1px solid rgba(127, 240, 216, 0.45);
+  border-radius: 4px;
+  color: var(--accent);
+  font: 0.78rem Consolas, 'Courier New', monospace;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.reading-close:hover,
+.reading-close:focus-visible {
+  background: rgba(127, 240, 216, 0.14);
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* ---------- Message stack (Phase 6) ---------- */
+/* Each toast is its own element so several can be visible at once. */
+#message-stack {
+  position: fixed;
+  left: 50%;
+  bottom: 70px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse; /* newest at the bottom, nearest the player */
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 7;
+}
+
+.message-toast {
+  padding: 9px 20px;
+  background: rgba(8, 12, 16, 0.88);
+  border: 1px solid rgba(127, 240, 216, 0.35);
+  border-radius: 4px;
+  color: var(--text);
+  font: 0.85rem Consolas, 'Courier New', monospace;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  max-width: 80vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Duration must match MESSAGE_FADE_MS in GameMessages.js. */
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.message-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Semantic tints so the player can read success/failure at a glance. */
+.message-toast.tone-good {
+  border-color: rgba(127, 240, 216, 0.75);
+  color: var(--accent);
+}
+
+.message-toast.tone-bad {
+  border-color: rgba(255, 122, 122, 0.6);
+  color: #ff9c9c;
+}
+
+/* ---------- Objective tracker (Phase 6) ---------- */
+#objective-tracker {
+  position: fixed;
+  right: 14px;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 280px;
+  padding: 9px 14px;
+  background: var(--panel);
+  border: 1px solid rgba(127, 240, 216, 0.25);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.objective-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0.8;
+}
+
+.objective-text {
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+/* Brief highlight whenever the objective advances. */
+#objective-tracker.pulse {
+  animation: objectivePulse 0.7s ease-out;
+}
+
+@keyframes objectivePulse {
+  0% {
+    border-color: rgba(127, 240, 216, 1);
+    box-shadow: 0 0 14px rgba(127, 240, 216, 0.45);
+  }
+  100% {
+    border-color: rgba(127, 240, 216, 0.25);
+    box-shadow: none;
+  }
+}
+
+

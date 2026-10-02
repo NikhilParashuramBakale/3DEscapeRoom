@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Forgotten Laboratory</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene-canvas"></canvas>
+
+      <!-- Boot / status overlay (used in later phases for messages too) -->
+      <div id="boot-overlay">
+        <h1>THE FORGOTTEN LABORATORY</h1>
+        <p id="boot-status">Initialising renderer&hellip;</p>
+      </div>
+
+      <!-- Temporary Phase 1 debug readout -->
+      <div id="debug-panel" class="hidden">
+        <span id="debug-fps">FPS: 0</span>
+        <span id="debug-info"></span>
+      </div>
+
+      <!-- Transient toasts are built by GameMessages (Phase 6) -->
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
