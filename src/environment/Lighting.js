@@ -37,6 +37,14 @@ export class Lighting {
     this._flickerValue = 1;
     this._flickerLamp = null;
 
+    // Flicker is OFF by default. The failing tube sits at (-1.0, 3.15, -4.5),
+    // directly above the exit door, so any dip at all lights the whole doorway -
+    // and because the door is a large flat surface the player reads it as the
+    // geometry blinking rather than the lamp failing. It is kept as an opt-in
+    // atmosphere switch via setFlickerEnabled() so the look is a deliberate
+    // choice instead of an unavoidable pulsing.
+    this._flickerEnabled = false;
+
     this._build();
   }
 
@@ -51,14 +59,20 @@ export class Lighting {
     const dir = new THREE.DirectionalLight(0xcfe0f5, 0.9);
     dir.position.set(5, 9, 4);
     dir.castShadow = true;
-    dir.shadow.mapSize.set(1024, 1024);
-    dir.shadow.camera.left = -10;
-    dir.shadow.camera.right = 10;
-    dir.shadow.camera.top = 10;
-    dir.shadow.camera.bottom = -10;
+    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.camera.left = -12;
+    dir.shadow.camera.right = 12;
+    dir.shadow.camera.top = 12;
+    dir.shadow.camera.bottom = -12;
     dir.shadow.camera.near = 1;
-    dir.shadow.camera.far = 30;
-    dir.shadow.bias = -0.0005;
+    dir.shadow.camera.far = 34;
+    // A negative bias alone leaves large flat surfaces (walls, floor, ceiling)
+    // self-shadowing into a shimmering acne pattern that shifts every frame as
+    // the camera moves - it reads as the geometry "blinking". normalBias offsets
+    // the shadow lookup along the surface normal instead of along the depth axis,
+    // which removes the artefact without detaching contact shadows.
+    dir.shadow.bias = -0.0002;
+    dir.shadow.normalBias = 0.04;
     this.scene.add(dir);
     this.dir = dir;
 
@@ -134,7 +148,8 @@ export class Lighting {
     if (shadow) {
       spot.castShadow = true;
       spot.shadow.mapSize.set(1024, 1024);
-      spot.shadow.bias = -0.0005;
+      spot.shadow.bias = -0.0002;
+      spot.shadow.normalBias = 0.04;
     }
     this.scene.add(spot);
     this.scene.add(spot.target);
@@ -146,6 +161,26 @@ export class Lighting {
   setDormant() {
     this._targetActive = 0;
     this._targetLevel = 0.35;
+  }
+
+  /**
+   * Turn the failing exit tube's stutter on or off.
+   *
+   * Off by default because the lamp sits directly above the exit door: the dip
+   * is bright enough to wash over the door and jambs, and on a flat surface that
+   * reads as the geometry flickering. Enable it if you want the atmosphere and
+   * do not mind the doorway breathing.
+   */
+  setFlickerEnabled(enabled) {
+    this._flickerEnabled = !!enabled;
+    if (!this._flickerEnabled) {
+      this._flickerValue = 1;
+      this._flickerTimer = 0;
+    }
+  }
+
+  get flickerEnabled() {
+    return this._flickerEnabled;
   }
 
   /** Switch the room to full power (after the machine activates). */
@@ -169,13 +204,22 @@ export class Lighting {
 
     // Flicker: the exit tube stutters irregularly while the room is dim,
     // and settles down once the lights are fully on.
+    //
+    // It has to stay SUBTLE. The exit tube is the one nearest the corridor, so
+    // the player is standing right beside it; the old version dropped to 0.05
+    // on 40% of rolls for as little as 50 ms, which strobed the whole doorway
+    // and looked like the geometry was blinking rather than the lamp failing.
+    // Now the dip is bounded (never darker than 45%), rarer, and lasts long
+    // enough to read as a deliberate stutter instead of frame noise.
     this._flickerTimer -= dt;
-    if (this._flickerTimer <= 0) {
+    if (!this._flickerEnabled) {
+      this._flickerValue = 1;   // steady: no pulsing anywhere in the scene
+    } else if (this._flickerTimer <= 0) {
       const roll = Math.random();
-      if (roll < 0.25) this._flickerValue = Math.random() * 0.25; // stutter
-      else if (roll < 0.4) this._flickerValue = 0.05; // near black
+      if (roll < 0.18) this._flickerValue = 0.45 + Math.random() * 0.25; // stutter
+      else if (roll < 0.24) this._flickerValue = 0.35; // deep dip, still visible
       else this._flickerValue = 1; // steady
-      this._flickerTimer = 0.05 + Math.random() * (this._active > 0.5 ? 3.5 : 0.5);
+      this._flickerTimer = 0.25 + Math.random() * (this._active > 0.5 ? 4.0 : 1.5);
     }
 
     // Apply level + flicker to every lamp.

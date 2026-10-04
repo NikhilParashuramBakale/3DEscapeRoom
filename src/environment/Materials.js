@@ -83,9 +83,12 @@ export function makeWallTexture(size = 512) {
       ctx.fillStyle = '#828d96';
       ctx.fillRect(0, s * 0.72, s, 5);
 
-      for (let i = 0; i < 60; i++) {
-        ctx.fillStyle = `rgba(40,50,58,${Math.random() * 0.25})`;
-        const r = 20 + Math.random() * 70;
+      // Light staining. Kept deliberately faint and few: large soft circles at
+      // high alpha read as moving blotches once the room is dimly lit, which is
+      // easily mistaken for rendering flicker. Subtle grime, not leopard print.
+      for (let i = 0; i < 40; i++) {
+        ctx.fillStyle = `rgba(40,50,58,${Math.random() * 0.07})`;
+        const r = 15 + Math.random() * 45;
         ctx.beginPath();
         ctx.arc(Math.random() * s, Math.random() * s, r, 0, Math.PI * 2);
         ctx.fill();

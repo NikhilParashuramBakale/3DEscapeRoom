@@ -6,6 +6,8 @@ import { Door } from '../objects/Door.js';
 import { Keypad } from '../objects/Keypad.js';
 import { Drawer } from '../objects/Drawer.js';
 import { evaluateKeypadCode } from '../puzzles/CodeSheet.js';
+import { GearPuzzle } from '../puzzles/GearPuzzle.js';
+import { Machine } from './Machine.js';
 
 /**
  * Laboratory - builds the whole environment shell and exposes:
@@ -72,22 +74,57 @@ export class Laboratory {
     ceiling.position.y = H;
     this.group.add(ceiling);
 
-    // Four walls (inward facing). North wall is split around the doorway.
+    // The north wall must be SOLID BOXES, not planes.
+    //
+    // A PlaneGeometry is single sided. These three panels face inward (+z), so
+    // from the corridor (z < -6) the camera saw their back faces, which WebGL
+    // culls - the whole wall vanished beside the doorway and the room appeared
+    // open from outside. Boxes give the wall real thickness (T) and a valid
+    // exterior face on both sides.
     const half = W / 2;
     const doorW = 1.72;
+    const wallZ = -D / 2 - T / 2;   // inner face stays flush at z = -D / 2
 
-    const northLeft = new THREE.Mesh(new THREE.PlaneGeometry(half - doorW / 2, H), m.wall);
-    northLeft.position.set(-half + (half - doorW / 2) / 2, H / 2, -D / 2);
+    // Side wall panels must STOP at the outer edge of the jambs, not run under
+    // them.
+    //
+    // Previously these spanned x 0.86..8.0 while the jambs spanned 0.86..1.16, so
+    // each jamb was embedded INSIDE its panel with front and back faces exactly
+    // coplanar at z = -6.3 and z = -6.0. Identical depth values meant the GPU
+    // could not decide which surface owned the pixel, producing fine vertical
+    // stripes that crawled and flickered as the camera moved. Trimming the panels
+    // to begin at doorW/2 + T makes the jambs and panels adjacent instead of
+    // overlapping - same silhouette, no coincident faces, no z-fighting.
+    const jambOuter = doorW / 2 + T;
+    const panelW = half - jambOuter;
+
+    const northLeft = new THREE.Mesh(new THREE.BoxGeometry(panelW, H, T), m.wall);
+    northLeft.position.set(-half + panelW / 2, H / 2, wallZ);
     this._wall(northLeft);
 
     const northRight = northLeft.clone();
-    northRight.position.x = half - (half - doorW / 2) / 2;
+    northRight.position.x = half - panelW / 2;
     this._wall(northRight);
 
     // Lintel above the door
-    const lintel = new THREE.Mesh(new THREE.PlaneGeometry(doorW, H - 2.72), m.wall);
-    lintel.position.set(0, 2.72 + (H - 2.72) / 2, -D / 2);
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(doorW, H - 2.72, T), m.wall);
+    lintel.position.set(0, 2.72 + (H - 2.72) / 2, wallZ);
     this._wall(lintel);
+
+    // Door jambs: solid reveals framing the opening on the corridor side, so the
+    // doorway reads as a hole in a thick wall instead of a slot in paper.
+    //
+    // They run the FULL wall height. Stopping them at the 2.72 head height
+    // left the cells x 0.86..1.16, y 2.72..H empty: the lintel only spans the
+    // doorway (|x| <= 0.86) and the side panels start at x = 1.16, so a
+    // rectangular hole was left in each top corner beside the door. Full height
+    // fills that corner and changes nothing else - the outer silhouette and
+    // the clear opening are identical.
+    for (const side of [-1, 1]) {
+      const jamb = new THREE.Mesh(new THREE.BoxGeometry(T, H, T), m.wall);
+      jamb.position.set(side * (doorW / 2 + T / 2), H / 2, wallZ);
+      this._wall(jamb);
+    }
 
     const south = new THREE.Mesh(new THREE.PlaneGeometry(W, H), m.wall);
     south.position.set(0, H / 2, D / 2);
@@ -164,6 +201,14 @@ export class Laboratory {
     this.keypad.group.position.set(-5.5 - 1.1 + 0.52, 0.62, 0.55);
     this.group.add(this.keypad.group);
 
+    // Phase 8: the power machine on the east wall. The gear puzzle needs the
+    // key, so the machine only accepts input once the player has it.
+    this.gearPuzzle = new GearPuzzle({ teeth: [12, 18, 12], targets: [0, 6, 0] });
+    this.machine = new Machine({ materials: this.materials, puzzle: this.gearPuzzle });
+    this.machine.group.position.set(7.2, 0, -1.0);
+    this.machine.group.rotation.y = -Math.PI / 2; // face into the room
+    this.group.add(this.machine.group);
+
     p.add(g, p.buildChair(), c, { x: -4.1, z: 0.3, rotY: -Math.PI / 2 });
 
     p.add(g, p.buildCrates(), c, { block: true });
@@ -187,11 +232,99 @@ export class Laboratory {
     const sign = this.props.buildExitSign(0, 2.95, -ROOM.depth / 2 + 0.16);
     this.group.add(sign);
     this.exitSign = sign;
+
+    this._buildCorridor();
+  }
+
+  /**
+   * The corridor beyond the exit door (Phase 9).
+   *
+   * Without this there is nowhere to escape TO. The room bounds clamp the
+   * player to z >= -5.4, so the old escape check at z < -5.6 could never fire
+   * and the game was unwinnable by construction.
+   *
+   * Built outside the north wall, so it never interferes with the lab interior.
+   */
+  _buildCorridor() {
+    const m = this.materials;
+    const width = 3.2;   // comfortably wider than the 1.6 doorway
+    const length = 7.0;  // enough room to walk clear of the threshold
+    const z0 = -ROOM.depth / 2 - ROOM.wallThickness;   // OUTER face of north wall
+    const zc = z0 - length / 2;   // corridor centre
+    const h = 2.6;
+
+    const g = new THREE.Group();
+    g.name = 'Corridor';
+    this.group.add(g);
+    this.corridor = g;
+
+    // Floor, continuing out from under the doorway.
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, length), m.floor);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(0, 0, zc);
+    floor.receiveShadow = true;
+    g.add(floor);
+
+    const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(width, length), m.ceiling);
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.position.set(0, h, zc);
+    g.add(ceiling);
+
+    // Side walls, facing inward.
+    for (const side of [-1, 1]) {
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(length, h), m.wall);
+      wall.position.set(side * (width / 2), h / 2, zc);
+      wall.rotation.y = -side * Math.PI / 2;
+      wall.receiveShadow = true;
+      g.add(wall);
+    }
+
+    // End cap, so the corridor reads as a dead end rather than the void.
+    const endWall = new THREE.Mesh(new THREE.PlaneGeometry(width, h), m.wall);
+    endWall.position.set(0, h / 2, z0 - length);
+    endWall.receiveShadow = true;
+    g.add(endWall);
+
+    // Real ceiling lamps with actual PointLights. An emissive box alone only
+    // LOOKS bright - it casts no light, which left the corridor ceiling
+    // rendering pure black. Each fixture needs both.
+    this.corridorLights = [];
+    for (const z of [zc - 1.8, zc + 1.8]) {
+      const fixture = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.5), m.lampOn);
+      fixture.position.set(0, h - 0.06, z);
+      g.add(fixture);
+
+      const light = new THREE.PointLight(0xbfe0ff, 14, 9, 1.6);
+      light.position.set(0, h - 0.2, z);
+      g.add(light);
+      this.corridorLights.push(light);
+    }
+
+    // Only the corridor's own walls block movement.
+    //
+    // maxZ must overlap the room's bounds by a clear margin so the union has
+    // NO gap. Room minZ is -5.4, so maxZ has to exceed -5.4; +1.2 gives a 1.2
+    // overlap. A flush edge (maxZ == z0 == -6.0) left a 0.6-wide band that was
+    // in neither zone, and because the escape trigger needs z STRICTLY below
+    // -5.6, the player could reach exactly -5.6 and then be stopped for good.
+    //
+    // minX/maxX are clamped to the 1.72 doorway minus the jamb thickness. The
+    // corridor is 3.2 wide, but the wall's jamb blocks occupy |x| 0.86..1.16;
+    // a wider zone would let the player stand inside solid masonry.
+    const half = width / 2;
+    const clear = 0.8;
+    this.corridorBounds = {
+      minX: -clear,
+      maxX: clear,
+      minZ: z0 - length + 0.4,
+      maxZ: z0 + 1.6,
+    };
   }
 
   update(dt) {
     this.door.update(dt);
     this.drawer.update(dt);
+    this.machine.update(dt);
     this.lighting.update(dt);
   }
 }

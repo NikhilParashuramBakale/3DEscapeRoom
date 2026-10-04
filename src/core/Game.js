@@ -74,6 +74,7 @@ export class Game {
 
     // Hand the room limits and solid objects to the player.
     this.player.setBounds(this.laboratory.bounds);
+    this.player.setExitZone(this.laboratory.corridorBounds);
     this.player.setColliders(this.laboratory.colliders);
     this.player.setSpawn(1.5, 4.2);
 
@@ -92,19 +93,34 @@ export class Game {
   _registerInteractions() {
     const lab = this.laboratory;
 
-    // Final exit door: locked until the gear puzzle + key are done (Phase 10).
+    // Final exit door: locked until the machine is powered (Phase 8).
     this.interactions.register(lab.door.leaf, {
       verb: 'Open',
       label: 'Door',
       distance: 3.2,
       onInteract: () => {
         if (lab.door.isLocked) {
-          this.messages.flash('The door is locked.', { tone: 'bad' });
+          this.messages.flash(
+            this.gameState.gearPuzzleSolved
+              ? 'Unlocked. Walk through it.'
+              : 'Deadbolted. Something has to release it first.',
+            { tone: 'bad' }
+          );
         } else {
           lab.door.toggle();
+          if (lab.door.isOpen) this.messages.flash('The door swings open. Cold air.', { tone: 'good' });
         }
       },
     });
+
+    // The machine's driver gear (Phase 8). Turning it rotates all three.
+    const driverGear = this.interactions.register(lab.machine.driver, {
+      verb: 'Turn',
+      label: 'Gear',
+      distance: 2.4,
+      onInteract: () => this._turnGear(),
+    });
+    driverGear.hitbox.scale.set(1.5, 1.5, 1.5);
 
     // The desk itself is scenery; the drawer is the real interaction target.
     this.interactions.register(lab.desk, {
@@ -259,11 +275,74 @@ export class Game {
     this.messages.flash('A small brass key.', { tone: 'good' });
   }
 
+  /**
+   * Turn the driver gear one tooth.
+   *
+   * Gating order matters: the machine needs the key, and once powered the
+   * player cannot keep turning it.
+   */
+  _turnGear() {
+    const lab = this.laboratory;
+
+    if (lab.gearPuzzle.solved) {
+      this.messages.flash('The machine is already running.', { tone: 'good' });
+      return;
+    }
+    if (!this.gameState.hasKey) {
+      this.messages.flash('The gear is seized. Something is holding the lock.', { tone: 'bad' });
+      return;
+    }
+
+    const solved = lab.machine.turnDriver(1);
+
+    if (solved) {
+      this._powerOn();
+      return;
+    }
+
+    // Partial progress: report how many gears are lined up.
+    const n = lab.gearPuzzle.alignedCount;
+    this.messages.flash(`${n} of 3 gears aligned.`);
+  }
+
+  /** Restore power, light the room, and release the exit door. */
+  _powerOn() {
+    const lab = this.laboratory;
+
+    this.gameState.set('gearPuzzleSolved', true);
+    this.gameState.set('machineActive', true);
+    this.gameState.set('doorUnlocked', true);
+
+    lab.door.unlock();
+    lab.lighting.setActive();
+
+    this.messages.flash('The machine hums to life. Lights return.', { tone: 'good' });
+    this.messages.flash('Somewhere behind you, a deadbolt releases.');
+  }
+
+  /** Detect the player leaving the room through the open door. */
+  _checkEscape() {
+    if (this.gameState.escaped) return;
+
+    const lab = this.laboratory;
+    const doorOpen = lab.door.isOpen;
+    // The doorway sits at z = -6; past it the player has left the lab.
+    const throughDoorway = this.player.object.position.z < -5.6 && this.player.object.position.x < 0.9 &&
+      this.player.object.position.x > -0.9;
+
+    if (!doorOpen || !throughDoorway) return;
+
+    this.gameState.set('escaped', true);
+    this.messages.clear();
+    this.messages.flash('You step into the dark corridor. You are out.', { tone: 'good', duration: 9000 });
+  }
+
   _update(dt, elapsed) {
     this.player.update(dt);
     this.laboratory.update(dt, elapsed);
     this.interactions.update(dt, elapsed);
     this.messages.update(dt);
+    this._checkEscape();
     // A modal has focus: clear the prompt/crosshair so nothing competes.
     if (this.readingPanel.isOpen || this.keypadPanel.isOpen) {
       this.prompt.hide();

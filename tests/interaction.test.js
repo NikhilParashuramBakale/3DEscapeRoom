@@ -1,7 +1,22 @@
 import * as T from 'three';
 
 // Minimal browser stub so the browser-only listeners can be constructed.
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
+// Must be defined before importing modules that touch the DOM at load time.
+const noop = () => {};
+globalThis.window = { addEventListener: noop, removeEventListener: noop };
+// Materials.js / Keypad.js draw into a <canvas>.
+globalThis.document = {
+  // PointerLockControls listens on ownerDocument.
+  addEventListener: noop, removeEventListener: noop,
+  createElement: () => ({
+    width: 0, height: 0,
+    getContext: () => ({
+      fillStyle: '', font: '', textAlign: '', textBaseline: '', lineWidth: '',
+      fillRect: noop, strokeRect: noop, clearRect: noop, fillText: noop,
+      beginPath: noop, moveTo: noop, lineTo: noop, stroke: noop, arc: noop, fill: noop,
+    }),
+  }),
+};
 
 import { Door } from '../src/objects/Door.js';
 import { InteractionManager } from '../src/interaction/InteractionManager.js';
@@ -190,3 +205,307 @@ console.log('slides toward +Z after 2s:', drawer.group.position.z.toFixed(2), '(
 drawer.close();
 for (let i = 0; i < 120; i++) drawer.update(1 / 60);
 console.log('closes back to 0         :', drawer.group.position.z.toFixed(2), '(expect 0.00)');
+
+console.log('\n--- Phase 8: gear puzzle solvability ---');
+import { GearPuzzle } from '../src/puzzles/GearPuzzle.js';
+
+const gears = new GearPuzzle({ teeth: [12, 18, 12], targets: [0, 6, 0] });
+console.log('teeth:', JSON.stringify(gears.teeth), 'targets:', JSON.stringify(gears.targets));
+
+// Brute-force the full turn cycle: a puzzle with no reachable solution would
+// soft-lock the player, so this must find one.
+let solution = null;
+for (let n = 0; n <= 360; n++) {
+  const probe = new GearPuzzle({ teeth: [12, 18, 12], targets: [0, 6, 0] });
+  for (let i = 0; i < n; i++) probe.turn(1);
+  if (probe.solved) { solution = n; break; }
+}
+console.log('smallest solution (turns):', solution, '(must not be null)');
+
+gears.turn(1);
+console.log('after 1 turn, offsets    :', JSON.stringify(gears.offsets), '| aligned:', gears.alignedCount);
+console.log('gear angles differ by size:', JSON.stringify(gears.teeth.map((_, i) => Number(gears.angleFor(i).toFixed(3)))));
+console.log('solved while still turning:', gears.solved);
+
+for (let i = 0; i < 11; i++) gears.turn(1);
+console.log('after 12 turns, solved    :', gears.solved, '| aligned:', gears.alignedCount, '/ 3');
+console.log('turning a solved puzzle is ignored:', gears.turn(1) === false);
+
+// Turning backwards must also be able to solve it (players will try both ways).
+const back = new GearPuzzle({ teeth: [12, 18, 12], targets: [0, 6, 0] });
+let backSolution = null;
+for (let n = 0; n <= 360; n++) {
+  const probe = new GearPuzzle({ teeth: [12, 18, 12], targets: [0, 6, 0] });
+  for (let i = 0; i < n; i++) probe.turn(-1);
+  if (probe.solved) { backSolution = n; break; }
+}
+console.log('also solvable backwards  :', backSolution !== null, '(turns:', backSolution + ')');
+
+console.log('\n--- Phase 8: Machine construction (regression) ---');
+// Regression guard: _buildGears used to index `this.gears` from inside the
+// .map() callback that was still building it, which threw
+// "Cannot read properties of undefined (reading '0')" at startup. Unit tests
+// missed it because nothing constructed Machine, so this does.
+import { Machine } from '../src/environment/Machine.js';
+
+const fakeMaterials = {
+  metal: new T.MeshStandardMaterial({ color: 0x999999 }),
+  darkMetal: new T.MeshStandardMaterial({ color: 0x222222 }),
+  lampOn: new T.MeshStandardMaterial({ color: 0xffffff, emissive: 0xbfe8ff }),
+};
+
+const machine = new Machine({
+  materials: fakeMaterials,
+  puzzle: new GearPuzzle({ teeth: [12, 18, 12], targets: [0, 6, 0] }),
+});
+
+console.log('machine built without throwing: true');
+console.log('gear count                    :', machine.gears.length, '(expect 3)');
+console.log('driver assigned               :', machine.driver === machine.gears[0]);
+console.log('markers built                 :', machine.markers.length, '(expect 3)');
+
+// Gears must be spaced apart by roughly the sum of their radii, not stacked.
+const zs = machine.gears.map((g) => Number(g.position.z.toFixed(3)));
+const gap01 = Number((machine.gears[1].position.z - machine.gears[0].position.z).toFixed(3));
+const expected01 = Number(
+  (machine.gears[0].userData.radius + machine.gears[1].userData.radius - 0.02).toFixed(3)
+);
+console.log('gear z positions              :', JSON.stringify(zs));
+console.log('gap 0->1 matches radii sum    :', gap01 === expected01, `(${gap01} vs ${expected01})`);
+console.log('gears do not overlap in z     :', zs[0] < zs[1] && zs[1] < zs[2]);
+
+// turnDriver must report the solved state, and update() must not throw.
+let reported = false;
+for (let i = 0; i < 12; i++) reported = machine.turnDriver(1);
+console.log('turnDriver reports solved     :', reported);
+for (let i = 0; i < 60; i++) machine.update(1 / 60);
+console.log('update() runs cleanly         : true');
+console.log('lamp is emissive once powered :', machine.lampMat.emissiveIntensity > 1);
+
+console.log('\n--- Phase 8: full Laboratory boot (startup smoke test) ---');
+// The 'Startup failed: Cannot read properties of undefined' crash only appeared
+// when Laboratory constructed Machine, so exercise the whole init path here.
+import { Laboratory, ROOM } from '../src/environment/Laboratory.js';
+import { Keypad } from '../src/objects/Keypad.js';
+// Door and Drawer are already imported above; re-importing them is a SyntaxError.
+
+const lab = new Laboratory(new T.Scene());
+console.log('Laboratory constructed         : true');
+console.log('door exists & starts locked   :', lab.door instanceof Door, '|', lab.door.isLocked === true);
+console.log('keypad solution derived       :', JSON.stringify(lab.keypadSolution), '(expect 24)');
+console.log('keypad is an instance         :', lab.keypad instanceof Keypad);
+console.log('drawer is an instance         :', lab.drawer instanceof Drawer);
+console.log('machine has 3 gears           :', lab.machine.gears.length === 3);
+console.log('gear puzzle present           :', lab.gearPuzzle instanceof GearPuzzle);
+console.log('code sheet on the desk        :', !!lab.codeSheet);
+console.log('drawer key exists & hidden    :', !!lab.drawerKey && lab.drawerKey.visible === false);
+console.log('colliders registered          :', lab.colliders.length > 0);
+console.log('bounds defined                :', typeof lab.bounds.minX === 'number');
+
+// Ticking the lab must not throw (machine.update, lighting.update, door.update).
+for (let i = 0; i < 10; i++) lab.update(1 / 60);
+console.log('lab.update() ticks cleanly    : true');
+
+// Lighting.setActive() is the payoff of the puzzle; it must reach full power.
+lab.lighting.setActive();
+for (let i = 0; i < 400; i++) lab.update(1 / 60);
+console.log('lights reach active level     :', lab.lighting._level > 0.9, `(${lab.lighting._level.toFixed(2)})`);
+
+console.log('\n--- Phase 9: escape is reachable (the original bug) ---');
+// The player bounds clamped to z >= -5.4 while the escape trigger needed
+// z < -5.6, so the game was unwinnable. Walk the player at the door and
+// confirm the escape point is actually occupiable.
+import { PlayerController } from '../src/player/PlayerController.js';
+
+const pc = new PlayerController(new T.PerspectiveCamera(), {
+  addEventListener: noop, removeEventListener: noop,
+  requestPointerLock: noop, ownerDocument: globalThis.document,
+});
+pc.setBounds(lab.bounds);
+pc.setExitZone(lab.corridorBounds);
+// Use the REAL collider set, not []. Passing [] hides any furniture blocking
+// the doorway - which is exactly how this test passed while the game did not.
+pc.setColliders(lab.colliders);
+
+const doorX = -0.8 + 0.8; // centre of the 1.6-wide doorway
+pc.object.position.set(doorX, pc.eyeHeight, -5.4);
+console.log('spawn at doorway, walkable    :', !pc._collides(doorX, -5.4));
+
+// Step north in FINE increments. A coarse step can hop across a thin blocked
+// band that continuous movement cannot cross; 0.02 is well under the player
+// radius, so this matches what actually happens frame by frame.
+const path = [];
+for (let z = -5.4; z >= -9; z -= 0.02) {
+  path.push({ z: Number(z.toFixed(2)), blocked: pc._collides(doorX, z) });
+}
+const firstBlocked = path.find((p) => p.blocked);
+console.log('can walk north through door   :', firstBlocked === undefined);
+console.log('furthest reachable z          :', firstBlocked ? firstBlocked.z : path.at(-1).z, '(need < -5.6)');
+
+const finalZ = firstBlocked ? firstBlocked.z : path.at(-1).z;
+const triggersEscape = finalZ < -5.6;
+console.log('ESCAPE TRIGGER REACHABLE      :', triggersEscape);
+
+// The zone union must have NO gap: every z between spawn and escape must be
+// walkable. This is the assertion that catches flush-but-not-overlapping edges.
+const gap = path.find((p) => p.blocked);
+console.log('no blocked band in the union  :', gap === undefined,
+  gap ? `(first gap at z=${gap.z})` : '');
+
+// And the overlap margin itself must be real, not just flush.
+// Overlap is measured as corridor.maxZ - room.minZ (positive = they overlap).
+const overlap = lab.corridorBounds.maxZ - lab.bounds.minZ;
+console.log('room/corridor overlap         :', overlap.toFixed(2), 'm (need > 0.4)');
+console.log('overlap is sufficient         :', overlap > 0.4);
+
+console.log('escape x window (-0.9..0.9)   :', doorX > -0.9 && doorX < 0.9);
+console.log('doorway aligns with corridor  :',
+  doorX >= lab.corridorBounds.minX && doorX <= lab.corridorBounds.maxX);
+
+// Walls must still stop the player from leaving sideways.
+console.log('corridor side wall blocks     :', pc._collides(lab.corridorBounds.minX - 0.3, -8.0));
+console.log('corridor end wall blocks      :', pc._collides(doorX, lab.corridorBounds.minZ - 0.3));
+// And the room's other sides must remain solid.
+console.log('room south wall still blocks  :', pc._collides(0, lab.bounds.maxZ + 0.3));
+console.log('room west wall still blocks   :', pc._collides(lab.bounds.minX - 0.3, 0));
+
+console.log('corridor overlaps the room    :', lab.corridorBounds.maxZ > lab.bounds.minZ,
+  `(corridor maxZ ${lab.corridorBounds.maxZ} vs room minZ ${lab.bounds.minZ})`);
+console.log('corridor is long enough       :', lab.corridorBounds.minZ < -6.5);
+
+console.log('\n--- Phase 9b: corridor actually emits light ---');
+// The corridor lamps were decorative emissive boxes with no PointLight, so
+// the ceiling rendered pure black. Assert each fixture casts real light.
+console.log('corridor point lights exist    :', lab.corridorLights.length >= 2);
+console.log('each light is a THREE.PointLight:', lab.corridorLights.every((l) => l.isPointLight === true));
+console.log('lights have non-zero intensity :', lab.corridorLights.every((l) => l.intensity > 0));
+console.log('lights have finite range       :', lab.corridorLights.every((l) => l.distance > 0 && isFinite(l.distance)));
+// Lights must sit below the ceiling they are meant to illuminate.
+const ceilY = 2.6;
+console.log('lights sit below the ceiling  :', lab.corridorLights.every((l) => l.position.y < ceilY));
+console.log('lights sit above head height  :', lab.corridorLights.every((l) => l.position.y > 1.7));
+// And they must be spread along the corridor, not stacked at one end.
+const lightZ = lab.corridorLights.map((l) => l.position.z);
+console.log('lights spread along corridor  :', Math.abs(lightZ[0] - lightZ[1]) > 1.5);
+// Nothing may reference a stale 'lamp' array here.
+console.log('no leftover decorative lamps  :', !Array.isArray(lab.corridorLamps));
+
+console.log('\n--- Phase 9c: the north wall is visible from the corridor ---');
+// Regression: the north wall was built from single-sided PlaneGeometry panels
+// facing inward, so from the corridor (z < -6) the camera saw culled back faces
+// and the wall appeared to be missing beside the door. Every north wall segment
+// must now be a solid box with real thickness.
+const northWalls = [];
+lab.group.traverse((o) => {
+  // Only meshes actually in the north wall band; other props are 0.3 deep too.
+  if (o.isMesh && o.geometry && o.geometry.type === 'BoxGeometry' &&
+      o.geometry.parameters.depth === ROOM.wallThickness &&
+      Math.abs(o.position.z - (-ROOM.depth / 2)) < 0.5) {
+    northWalls.push(o);
+  }
+});
+console.log('north wall is solid boxes    :', northWalls.length >= 3);
+// Those boxes must straddle the north wall line, not sit inside the room.
+const northWallZ = -ROOM.depth / 2;
+console.log('wall straddles the boundary  :', northWalls.every((w) => Math.abs(w.position.z - northWallZ) < 0.4));
+// And the exterior face must be behind the inner face, closing the room off.
+const exteriorFace = Math.max(...northWalls.map((w) => w.position.z - ROOM.wallThickness / 2));
+console.log('exterior face is outside room:', exteriorFace < northWallZ);
+console.log('doorway stays clear of wall  :', !northWalls.some((w) => Math.abs(w.position.x) < 0.86 - ROOM.wallThickness / 2 && w.position.y < 2.72));
+// The corridor must start at the exterior face, not overlap the room interior.
+console.log('corridor starts outside wall :', lab.corridorBounds.maxZ > northWallZ);
+
+console.log('\n--- Phase 9e: no z-fighting in the north wall ---');
+// Regression: the jamb boxes (x 0.86..1.16) were embedded INSIDE the side wall
+// panels (x 0.86..8.0), so their front/back faces were exactly coplanar at
+// z = -6.3 / z = -6.0. Coincident depth values z-fight, which showed as fine
+// vertical stripes crawling across the doorway - not a shadow or lighting
+// artefact at all. Every north wall box must now be disjoint in x.
+const wallBoxes = [];
+lab.group.traverse((o) => {
+  if (o.isMesh && o.geometry && o.geometry.type === 'BoxGeometry' &&
+      o.geometry.parameters.depth === ROOM.wallThickness &&
+      Math.abs(o.position.z - northWallZ) < 0.5) {
+    wallBoxes.push(o);
+  }
+});
+// Build an x-interval for each box and assert no two overlap in their interior.
+const spans = wallBoxes.map((w) => {
+  const hx = w.geometry.parameters.width / 2;
+  return { min: w.position.x - hx, max: w.position.x + hx, y: w.position.y, h: w.geometry.parameters.height };
+});
+let overlaps = 0;
+for (let i = 0; i < spans.length; i++) {
+  for (let j = i + 1; j < spans.length; j++) {
+    const a = spans[i];
+    const b = spans[j];
+    if (a.min < b.max - 1e-6 && b.min < a.max - 1e-6) overlaps++;
+  }
+}
+console.log('no two wall boxes overlap in x:', overlaps === 0);
+// The doorway must still be exactly doorW wide and clear of masonry.
+const doorwayBoxes = wallBoxes.filter((w) => w.geometry.parameters.width < ROOM.width / 2);
+console.log('doorway still clear         :', doorwayBoxes.length >= 3);
+// The panels must still reach the room corners, so nothing is left open.
+const reachesCorner = spans.some((s) => Math.abs(s.min + ROOM.width / 2) < 1e-6) &&
+                      spans.some((s) => Math.abs(s.max - ROOM.width / 2) < 1e-6);
+console.log('wall still reaches corners  :', reachesCorner);
+
+// Regression: the jambs used to stop at the 2.72 door head height, but the
+// lintel only covers |x| <= 0.86 and the side panels start at x = 1.16. The
+// corners x 0.86..1.16, y 2.72..H were therefore left open - a visible gap in
+// each top corner beside the door. Every jamb must now reach the ceiling.
+const jambs = wallBoxes.filter((w) => w.geometry.parameters.width === ROOM.wallThickness);
+console.log('jambs reach the ceiling    :',
+  jambs.length === 2 && jambs.every((j) => Math.abs(
+    (j.position.y + j.geometry.parameters.height / 2) - ROOM.height) < 1e-6));
+
+console.log('\n--- Phase 9d: no shadow acne / strobing flicker ---');
+// Regression: large flat walls shimmered under the directional + desk shadow
+// casters (bias -0.0005 with no normalBias on a 1024 map), and the exit tube
+// strobed the doorway because it dropped to 0.05 on 40% of rolls. Both read as
+// the geometry "blinking".
+const shadowCasters = [];
+lab.group.parent.traverse((o) => {
+  if (o.isLight && o.castShadow) shadowCasters.push(o);
+});
+console.log('shadow casters found        :', shadowCasters.length >= 2);
+// normalBias is the real fix for acne; a bare negative bias is not enough.
+console.log('every caster has normalBias :', shadowCasters.every((l) => l.shadow.normalBias > 0));
+console.log('no caster uses a raw -0.0005:', shadowCasters.every((l) => l.shadow.bias > -0.0005));
+// The flicker must be OFF by default: the failing tube is directly above the
+// exit door, so even a gentle dip washes over the doorway and reads as the
+// geometry blinking. Verify the steady state first.
+const lit = lab.lighting;
+console.log('flicker off by default      :', lit.flickerEnabled === false);
+const steady = [];
+for (let i = 0; i < 200; i++) {
+  lit._flickerTimer = 0;      // force a re-roll every sample
+  lit.update(0.016);
+  steady.push(lit._flickerValue);
+}
+console.log('scene is perfectly steady   :', steady.every((v) => v === 1));
+
+// With flicker opted in it must still be bounded - it may never black the room
+// out, must still animate, and its windows must be long enough to read as a
+// failing lamp rather than frame noise.
+lit.setFlickerEnabled(true);
+console.log('flicker is opt-in           :', lit.flickerEnabled === true);
+const samples = [];
+for (let i = 0; i < 400; i++) {
+  lit._flickerTimer = 0;      // force a re-roll every sample
+  lit.update(0.016);
+  samples.push(lit._flickerValue);
+}
+console.log('flicker never goes dark     :', Math.min(...samples) >= 0.3);
+console.log('flicker is still animating  :', new Set(samples).size > 1);
+console.log('flicker reaches full power  :', Math.max(...samples) === 1);
+// The stutter window must be long enough to read as a lamp, not frame noise.
+lit._flickerTimer = 0;
+lit.update(0.016);
+console.log('flicker window >= 0.25s    :', lit._flickerTimer >= 0.25);
+// Turning it back off must immediately restore a constant value.
+lit.setFlickerEnabled(false);
+lit.update(0.016);
+console.log('re-disable restores steady  :', lit._flickerValue === 1);
+

@@ -19,6 +19,7 @@ export class PlayerController {
     this.radius = 0.35;
     this.colliders = [];
     this.bounds = { minX: -8, maxX: 8, minZ: -6, maxZ: 6 };
+    this.exitZone = null;      // optional walkable region outside the room
     this.blocked = false; // true when a UI (keypad) pauses control
 
     this._bobTime = 0;
@@ -53,6 +54,17 @@ export class PlayerController {
     this.bounds = bounds;
   }
 
+  /**
+   * Extra walkable region beyond the room (the exit corridor).
+   *
+   * Movement is allowed if the position is legal in EITHER the main room or a
+   * secondary zone, so the two overlap smoothly through the open doorway
+   * without a hard seam.
+   */
+  setExitZone(zone) {
+    this.exitZone = zone;
+  }
+
   setColliders(colliders) {
     this.colliders = colliders;
   }
@@ -65,14 +77,21 @@ export class PlayerController {
 
   /** True if a circle at (x, z) would overlap a collider or leave the room. */
   _collides(x, z) {
-    const { minX, maxX, minZ, maxZ } = this.bounds;
-    if (x < minX || x > maxX || z < minZ || z > maxZ) return true;
+    const insideRoom = this._inBox(this.bounds, x, z);
+    const insideExit = this.exitZone ? this._inBox(this.exitZone, x, z) : false;
+    // Legal in either region; the overlap through the doorway lets you step out.
+    if (!insideRoom && !insideExit) return true;
+
     const r = this.radius;
     for (const c of this.colliders) {
       if (c.top !== undefined && c.top < 0.4) continue; // low objects are steppable
       if (x + r > c.minX && x - r < c.maxX && z + r > c.minZ && z - r < c.maxZ) return true;
     }
     return false;
+  }
+
+  _inBox(b, x, z) {
+    return x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ;
   }
 
   update(delta) {
