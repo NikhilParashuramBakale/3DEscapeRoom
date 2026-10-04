@@ -412,6 +412,107 @@ body,
   outline: none;
 }
 
+/* ---------- Completion screen (Phase 10) ---------- */
+#end-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Opaque enough that the corridor behind cannot distract from the stats. */
+  background: radial-gradient(circle at 50% 45%, rgba(13, 22, 32, 0.96) 0%, rgba(5, 7, 10, 0.99) 70%);
+  opacity: 0;
+  transition: opacity 0.9s ease;
+  z-index: 20;
+}
+
+#end-screen.open {
+  opacity: 1;
+}
+
+.end-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1rem;
+  padding: 2.6rem 3.2rem;
+  max-width: min(560px, 88vw);
+  text-align: center;
+  border: 1px solid rgba(127, 240, 216, 0.28);
+  border-radius: 6px;
+  background: rgba(8, 12, 16, 0.7);
+  box-shadow: 0 0 40px rgba(127, 240, 216, 0.08);
+  /* Slides up slightly as it fades in. */
+  transform: translateY(14px);
+  transition: transform 0.9s ease;
+}
+
+#end-screen.open .end-card {
+  transform: translateY(0);
+}
+
+.end-title {
+  font-size: 2rem;
+  letter-spacing: 0.4em;
+  text-indent: 0.4em; /* offset the trailing letter-space so it reads centred */
+  color: var(--accent);
+  text-shadow: 0 0 22px rgba(127, 240, 216, 0.35);
+}
+
+.end-flavor {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text);
+  opacity: 0.8;
+}
+
+.end-stats {
+  display: flex;
+  gap: 2.2rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 0.4rem 0;
+}
+
+.end-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 84px;
+}
+
+.end-stat dt {
+  font-size: 0.62rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.end-stat dd {
+  font: 1.15rem Consolas, 'Courier New', monospace;
+  color: var(--accent);
+}
+
+.end-restart {
+  margin-top: 0.4rem;
+  padding: 9px 22px;
+  background: transparent;
+  border: 1px solid rgba(127, 240, 216, 0.45);
+  border-radius: 4px;
+  color: var(--accent);
+  font: 0.8rem Consolas, 'Courier New', monospace;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.end-restart:hover,
+.end-restart:focus-visible {
+  background: rgba(127, 240, 216, 0.14);
+  border-color: var(--accent);
+  outline: none;
+}
+
 /* ---------- Message stack (Phase 6) ---------- */
 /* Each toast is its own element so several can be visible at once. */
 #message-stack {

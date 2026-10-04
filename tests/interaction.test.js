@@ -498,6 +498,116 @@ for (let i = 0; i < 400; i++) {
   samples.push(lit._flickerValue);
 }
 console.log('flicker never goes dark     :', Math.min(...samples) >= 0.3);
+
+console.log('\n--- Phase 10: completion screen ---');
+// The escape used to end the game with a 9-second toast and nothing else: no
+// summary, no acknowledgement, and the player was left standing in an
+// unbounded corridor with every objective already complete. Phase 10 replaces
+// that with a real completion overlay, so test its pieces.
+import { EndScreen, formatDuration } from '../src/ui/EndScreen.js';
+
+// The shared document stub above only models <canvas>. The end screen is plain
+// DOM, so give createElement a small element model for this block.
+const classListFor = (el) => ({
+  _set: new Set(el._classes || []),
+  add(...c) { this._set.add(c.join(' ')); el._classes = [...this._set]; },
+  remove(...c) { for (const n of c) this._set.delete(n); el._classes = [...this._set]; },
+  contains(c) { return this._set.has(c); },
+});
+const makeEl = (tag) => ({
+  tag, _classes: [], textContent: '', innerHTML: '', offsetWidth: 0,
+  listeners: {},
+  classList: null,
+  addEventListener(t, fn) { (this.listeners[t] ||= []).push(fn); },
+  appendChild() {},
+  focus() {},
+  click() { for (const fn of this.listeners.click || []) fn(); },
+  // The panel looks up several stat slots and the restart button by class; hand
+  // back a stable child per selector so listeners attach somewhere real.
+  _children: {},
+  querySelector(sel) {
+    this._children[sel] ||= makeEl('div');
+    return this._children[sel];
+  },
+});
+const realCreate = globalThis.document.createElement;
+globalThis.document.createElement = (tag) => {
+  const el = makeEl(tag);
+  el.classList = classListFor(el);
+  return el;
+};
+
+// formatDuration is exported so the clock formatting can be checked directly.
+const cases = [[0, '0:00'], [5, '0:05'], [59.9, '0:59'], [60, '1:00'], [125, '2:05'],
+  [3599, '59:59'], [3600, '1:00:00'], [3725, '1:02:05']];
+const fmtOk = cases.every(([s, want]) => formatDuration(s) === want);
+console.log('duration formats as m:ss / h:mm:ss:', fmtOk);
+if (!fmtOk) {
+  for (const [s, want] of cases) {
+    const got = formatDuration(s);
+    if (got !== want) console.log(`  ${s}s -> "${got}" (want "${want}")`);
+  }
+}
+// It must never show a negative or NaN time if called with a bad value.
+console.log('duration clamps bad input   :', formatDuration(-5) === '0:00' && formatDuration(NaN) === '0:00');
+
+// The panel must reveal itself, block input and release the pointer so the
+// single button is actually clickable.
+const playerStub = {
+  blocked: false, locks: 0,
+  controls: { isLocked: true, unlock() { this.isLocked = false; } },
+  setBlocked(v) { this.blocked = v; },
+};
+let restarts = 0;
+const screen = new EndScreen({ appendChild() {} }, {
+  player: playerStub,
+  onRestart: () => restarts++,
+});
+console.log('hidden before the escape    :', screen.isOpen === false);
+screen.show({ seconds: 125, gearTurns: 6, objectivesDone: 6, objectivesTotal: 6 });
+console.log('opens on show               :', screen.isOpen === true);
+console.log('blocks player control       :', playerStub.blocked === true);
+console.log('releases the pointer        :', playerStub.controls.isLocked === false);
+// Showing twice must be a no-op, or a re-triggered escape would re-animate.
+screen.show({ seconds: 999 });
+console.log('second show is a no-op      :', screen.isOpen === true);
+screen.restartBtn.click();
+console.log('restart button fires handler:', restarts === 1);
+globalThis.document.createElement = realCreate;
+
+console.log('\n--- Phase 10: run statistics wiring ---');
+// Game must count gear turns and freeze the clock at the moment of escape, then
+// derive the objective tally from GameState rather than hard-coding it.
+const gameSrc = await import('node:fs').then((fs) =>
+  fs.readFileSync(new URL('../src/core/Game.js', import.meta.url), 'utf8'));
+console.log('counts gear turns           :', /this\.gearTurns\+\+/.test(gameSrc));
+console.log('freezes the clock on escape :', /runSeconds\s*=\s*Math\.max\(0,\s*this\._elapsed - this\.runStartedAt\)/.test(gameSrc));
+console.log('derives objectives from state:', /OBJECTIVES\.filter\(\(o\) => this\.gameState\[o\.flag\]\)/.test(gameSrc));
+// The old 9-second escape toast must be gone, or it would sit on top of the
+// completion card for the first half of the fade-in.
+console.log('no leftover escape toast    :', !/You step into the dark corridor/.test(gameSrc));
+
+console.log('\n--- Phase 10: doorway closes the opening ---');
+// Regression: the door leaf was declared 2.6 m tall while the opening head is at
+// 2.72 m and the frame head adds another 0.07 m. That left a 0.05 m slot of open
+// air above the door, through which the unlit corridor showed as a dark line
+// painted across the wall right under the EXIT sign. Leaf + frame must now land
+// exactly on the opening head.
+import { DOOR_FRAME_T, DOOR_OPENING_H } from '../src/objects/Door.js';
+console.log('leaf + frame meets the head  :',
+  Math.abs((lab.door.height + DOOR_FRAME_T) - DOOR_OPENING_H) < 1e-9);
+console.log('no slot above the door      :', lab.door.height + DOOR_FRAME_T >= DOOR_OPENING_H);
+// The lintel must start at that same head height.
+const lintelMesh = northWalls.find((w) => w.geometry.parameters.height > 0.1 &&
+  Math.abs(w.position.x) < 1e-6);
+console.log('lintel starts at the head   :',
+  Math.abs((lintelMesh.position.y - lintelMesh.geometry.parameters.height / 2) - DOOR_OPENING_H) < 1e-6);
+
+// The reinforcing bars are intentional - they stay.
+const pivotParts = lab.door.pivot.children;
+console.log('bars are still on the leaf  :',
+  pivotParts.filter((p) => p.geometry.parameters.depth === 0.02).length === 2);
+
 console.log('flicker is still animating  :', new Set(samples).size > 1);
 console.log('flicker reaches full power  :', Math.max(...samples) === 1);
 // The stutter window must be long enough to read as a lamp, not frame noise.

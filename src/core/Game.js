@@ -9,6 +9,8 @@ import { InteractionManager } from '../interaction/InteractionManager.js';
 import { ReadingPanel } from '../ui/ReadingPanel.js';
 import { GameMessages } from '../ui/GameMessages.js';
 import { KeypadPanel } from '../ui/KeypadPanel.js';
+import { EndScreen } from '../ui/EndScreen.js';
+import { OBJECTIVES } from '../ui/GameMessages.js';
 import { CODE_SHEET_LINES, CODE_SHEET_TITLE, CODE_SHEET_HINT } from '../puzzles/CodeSheet.js';
 
 /**
@@ -49,6 +51,20 @@ export class Game {
     this.keypadPanel = new KeypadPanel(document.getElementById('app'), {
       player: this.player,
     });
+
+    // Completion overlay (Phase 10). The game is fully rebuildable from
+    // scratch, so "Play again" simply reloads the page rather than trying to
+    // unwind and reset every system.
+    this.endScreen = new EndScreen(document.getElementById('app'), {
+      player: this.player,
+      onRestart: () => window.location.reload(),
+    });
+
+    // Run statistics shown on the completion screen. `startedAt` uses the same
+    // clock as the render loop so the timer cannot drift away from elapsed time.
+    this.runStartedAt = 0;
+    this.runSeconds = 0;
+    this.gearTurns = 0;
 
     // Raycast interaction system (Phase 4).
     this.interactions = new InteractionManager(this.camera, {
@@ -293,6 +309,7 @@ export class Game {
       return;
     }
 
+    this.gearTurns++;
     const solved = lab.machine.turnDriver(1);
 
     if (solved) {
@@ -333,11 +350,26 @@ export class Game {
     if (!doorOpen || !throughDoorway) return;
 
     this.gameState.set('escaped', true);
+
+    // Freeze the clock BEFORE showing the screen, otherwise the last few
+    // frames of walking keep counting and the displayed time drifts.
+    this.runSeconds = Math.max(0, this._elapsed - this.runStartedAt);
     this.messages.clear();
-    this.messages.flash('You step into the dark corridor. You are out.', { tone: 'good', duration: 9000 });
+    this.endScreen.show({
+      seconds: this.runSeconds,
+      gearTurns: this.gearTurns,
+      objectivesDone: OBJECTIVES.filter((o) => this.gameState[o.flag]).length,
+      objectivesTotal: OBJECTIVES.length,
+    });
   }
 
   _update(dt, elapsed) {
+    this._elapsed = elapsed;
+
+    // Start the run clock on the first frame, not in init(): init() runs before
+    // SceneManager.start(), so a clock started there would include boot time.
+    if (!this.runStartedAt) this.runStartedAt = elapsed;
+
     this.player.update(dt);
     this.laboratory.update(dt, elapsed);
     this.interactions.update(dt, elapsed);

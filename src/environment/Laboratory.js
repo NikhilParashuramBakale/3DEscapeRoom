@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { createMaterials } from './Materials.js';
 import { Lighting } from './Lighting.js';
 import { Props } from './Props.js';
-import { Door } from '../objects/Door.js';
+import { Door, DOOR_FRAME_T, DOOR_OPENING_H } from '../objects/Door.js';
 import { Keypad } from '../objects/Keypad.js';
 import { Drawer } from '../objects/Drawer.js';
 import { evaluateKeypadCode } from '../puzzles/CodeSheet.js';
@@ -100,15 +100,22 @@ export class Laboratory {
 
     const northLeft = new THREE.Mesh(new THREE.BoxGeometry(panelW, H, T), m.wall);
     northLeft.position.set(-half + panelW / 2, H / 2, wallZ);
+    this._alignWallUV(northLeft.geometry, northLeft.position, W, H, T);
     this._wall(northLeft);
 
     const northRight = northLeft.clone();
     northRight.position.x = half - panelW / 2;
+    northRight.geometry = northLeft.geometry.clone();
+    this._alignWallUV(northRight.geometry, northRight.position, W, H, T);
     this._wall(northRight);
 
-    // Lintel above the door
-    const lintel = new THREE.Mesh(new THREE.BoxGeometry(doorW, H - 2.72, T), m.wall);
-    lintel.position.set(0, 2.72 + (H - 2.72) / 2, wallZ);
+    // Lintel above the door. The head height comes from the shared doorway
+    // constants so the opening and the door frame head can never disagree -
+    // when they did, a slot of daylight above the door read as a dark line
+    // across the wall just under the EXIT sign.
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(doorW, H - DOOR_OPENING_H, T), m.wall);
+    lintel.position.set(0, DOOR_OPENING_H + (H - DOOR_OPENING_H) / 2, wallZ);
+    this._alignWallUV(lintel.geometry, lintel.position, W, H, T);
     this._wall(lintel);
 
     // Door jambs: solid reveals framing the opening on the corridor side, so the
@@ -123,6 +130,7 @@ export class Laboratory {
     for (const side of [-1, 1]) {
       const jamb = new THREE.Mesh(new THREE.BoxGeometry(T, H, T), m.wall);
       jamb.position.set(side * (doorW / 2 + T / 2), H / 2, wallZ);
+      this._alignWallUV(jamb.geometry, jamb.position, W, H, T);
       this._wall(jamb);
     }
 
@@ -156,6 +164,32 @@ export class Laboratory {
     }
 
     void T;
+  }
+
+  _alignWallUV(geometry, position, W, H, T) {
+    const pos = geometry.attributes.position;
+    const uv = geometry.attributes.uv;
+    const norm = geometry.attributes.normal;
+    for (let i = 0; i < pos.count; i++) {
+      const nx = Math.abs(norm.getX(i));
+      const nz = Math.abs(norm.getZ(i));
+
+      const wx = position.x + pos.getX(i);
+      const wy = position.y + pos.getY(i);
+      const wz = position.z + pos.getZ(i);
+
+      if (nz > 0.5) {
+        // Front or back face.
+        uv.setXY(i, (wx + W / 2) / W, wy / H);
+      } else if (nx > 0.5) {
+        // Side face.
+        uv.setXY(i, wz / W, wy / H);
+      } else {
+        // Top/bottom face.
+        uv.setXY(i, (wx + W / 2) / W, wz / H);
+      }
+    }
+    uv.needsUpdate = true;
   }
 
   _wall(mesh) {
@@ -219,11 +253,17 @@ export class Laboratory {
 
   _buildExit() {
     // Exit door on the north wall, hinge on the left.
+    //
+    // The leaf height is derived from the opening so that leaf + frame head
+    // lands EXACTLY on DOOR_OPENING_H. Declaring `height: 2.6` here while the
+    // opening is 2.72 and the frame is 0.07 thick left a 0.05 m gap above the
+    // door - a slot of open air that showed the unlit corridor beyond as a dark
+    // line on the wall.
     this.door = new Door({
       material: this.materials.doorPanel,
       metalMaterial: this.materials.darkMetal,
       width: 1.6,
-      height: 2.6,
+      height: DOOR_OPENING_H - DOOR_FRAME_T,
       openAngle: -Math.PI * 0.55,
     });
     this.door.group.position.set(-0.8, 0, -ROOM.depth / 2 + 0.1);
