@@ -655,7 +655,7 @@ let threw = false;
 try {
   audio.keypadPress('digit'); audio.keypadReject(); audio.keypadAccept();
   audio.drawerOpen(); audio.pickup(); audio.gearTurn(); audio.powerOn();
-  audio.doorOpen(); audio.doorUnlock(); audio.footstep(); audio.escape();
+  audio.doorOpen(); audio.doorClose(); audio.doorUnlock(); audio.footstep(); audio.escape();
   audio.uiClick(); audio.startAmbience();
 } catch (e) { threw = true; }
 console.log('pre-unlock calls are safe :', threw === false);
@@ -725,7 +725,7 @@ console.log('volume clamps to 0..1     :', hi === 1 && lo === 0);
 
 // And every public effect name the game calls must actually exist.
 const expected = ['keypadPress', 'keypadReject', 'keypadAccept', 'drawerOpen', 'pickup',
-  'gearTurn', 'powerOn', 'doorOpen', 'doorUnlock', 'footstep', 'escape', 'uiClick',
+  'gearTurn', 'powerOn', 'doorOpen', 'doorClose', 'doorUnlock', 'footstep', 'escape', 'uiClick',
   'startAmbience', 'stopAmbience', 'unlock', 'setEnabled', 'setVolume'];
 console.log('all game sounds exist      :', expected.every((m) => typeof audio[m] === 'function'));
 
@@ -750,6 +750,50 @@ const toggleStart = cssSrc.indexOf('#audio-toggle {');
 // enough to reach the pointer-events declaration inside the block.
 const toggleBlock = cssSrc.slice(toggleStart, toggleStart + 700);
 console.log('toggle never eats clicks   :', /pointer-events:\s*none/.test(toggleBlock));
+
+console.log('\n--- Phase 12: lighting polish ---');
+// Regression: the corridor PointLights were constructed and then never touched
+// by Lighting.update(), so they stayed at a fixed intensity for the entire run.
+// The lab visibly powered up behind the player while the escape route remained
+// dead dark - an obvious inconsistency, not a stylistic choice.
+const lab12 = lab;
+console.log('corridor lights registered  :', lab12.lighting.aux.length === lab12.corridorLights.length);
+console.log('every corridor light driven :', lab12.corridorLights.every(
+  (l) => lab12.lighting.aux.some((a) => a.light === l)));
+
+// They must actually DIM in the dormant state and BRIGHTEN once powered.
+const corridorLight = lab12.corridorLights[0];
+lab12.lighting.setDormant();
+for (let i = 0; i < 300; i++) lab12.lighting.update(1 / 60);
+const dormantIntensity = corridorLight.intensity;
+lab12.lighting.setActive();
+for (let i = 0; i < 300; i++) lab12.lighting.update(1 / 60);
+const activeIntensity = corridorLight.intensity;
+console.log('corridor dims when dormant :', dormantIntensity < 14 * 0.5);
+console.log('corridor brightens on power:', activeIntensity > dormantIntensity * 2);
+
+// The corridor must remain darker than the lab once powered, so the exit still
+// reads as the dark place you are walking out of.
+let labTube = 0;
+lab12.lighting.lamps.forEach((l) => { labTube = Math.max(labTube, l.light.intensity); });
+console.log('corridor stays darker       :', activeIntensity < labTube);
+
+// Hand the lighting rig back in its original dormant state. This block leaves
+// the room powered, and the flicker checks that follow assert the dormant
+// behaviour (where the stutter window is short) - leaving it active would
+// change their expected timings.
+lab12.lighting.setDormant();
+lab12.lighting.setFlickerEnabled(false);
+// Snap the animated values instead of waiting on the damped transition: the
+// flicker window is chosen from `this._active`, which is still ~1 from the
+// power-on above and would otherwise keep lengthening the window.
+lab12.lighting._active = 0;
+lab12.lighting._level = 0.35;
+lab12.lighting.update(1 / 60);
+// Re-enable the opt-in flicker: the checks after this block assert it animates
+// and that its window is long enough. While it is disabled `update()` skips
+// scheduling entirely, so the window would read as 0 and fail.
+lab12.lighting.setFlickerEnabled(true);
 
 console.log('flicker is still animating  :', new Set(samples).size > 1);
 console.log('flicker reaches full power  :', Math.max(...samples) === 1);

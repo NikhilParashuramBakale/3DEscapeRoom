@@ -338,6 +338,12 @@ export class Laboratory {
       light.position.set(0, h - 0.2, z);
       g.add(light);
       this.corridorLights.push(light);
+
+      // Hand it to the lighting rig so it dims with the abandoned lab and
+      // brightens when the power comes back. Left unmanaged it stayed at a
+      // fixed 14 for the whole run: the room lit up behind you while the way
+      // out stayed dead, which read as a bug rather than a choice.
+      this.lighting.registerAuxLight(light, 14, { dormantScale: 0.3, activeScale: 1 });
     }
 
     // Only the corridor's own walls block movement.

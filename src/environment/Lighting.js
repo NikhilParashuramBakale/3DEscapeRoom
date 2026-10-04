@@ -23,6 +23,8 @@ export class Lighting {
     this.scene = scene;
     this.lamps = [];
     this.spots = [];
+    // Lights adopted from other builders (the corridor fixtures).
+    this.aux = [];
 
     // Current (animated) and target multipliers for the room.
     // Note: the room still needs to read as "dim and abandoned", but the
@@ -157,6 +159,20 @@ export class Lighting {
     return spot;
   }
 
+  /**
+   * Adopt a light built elsewhere (the corridor fixtures in Laboratory) so it
+   * obeys the same room state as the main rig.
+   *
+   * The corridor lights used to be created and then never referenced again by
+   * `update()`, so they stayed at a fixed brightness for the whole game: the
+   * room visibly powered up behind you while the way out remained dead dark.
+   * They also stayed bright after the machine woke up, which inverted the
+   * intended mood - the corridor should be the darkest place in the game.
+   */
+  registerAuxLight(light, baseIntensity, { dormantScale = 0.35, activeScale = 1 } = {}) {
+    this.aux.push({ light, baseIntensity, dormantScale, activeScale });
+  }
+
   /** Switch the room to the dim, abandoned look. */
   setDormant() {
     this._targetActive = 0;
@@ -234,6 +250,14 @@ export class Lighting {
       let k = this._level;
       if (s.light === this.machineSpot) k = 0.25 + 0.75 * this._active;
       s.light.intensity = s.baseIntensity * k;
+    }
+
+    // Adopted lights (corridor fixtures). They lerp between their own dormant
+    // and active levels rather than the room's, so the corridor can stay the
+    // darkest area in the game even once the lab is fully powered.
+    for (const a of this.aux) {
+      const k = a.dormantScale + (a.activeScale - a.dormantScale) * this._active;
+      a.light.intensity = a.baseIntensity * k;
     }
   }
 }
