@@ -412,6 +412,33 @@ body,
   outline: none;
 }
 
+/* ---------- Sound toggle (Phase 11) ---------- */
+#audio-toggle {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  padding: 6px 12px;
+  /* Deliberately never takes pointer lock away: pointer-events:auto would make
+     the canvas unclickable for relocking the cursor, since the button sits
+     above it. The key toggle (M) is the primary control. */
+  pointer-events: none;
+  background: var(--panel);
+  border: 1px solid rgba(127, 240, 216, 0.25);
+  border-radius: 4px;
+  color: var(--accent);
+  font: 0.66rem Consolas, 'Courier New', monospace;
+  letter-spacing: 0.16em;
+  z-index: 6;
+  opacity: 0.85;
+}
+
+/* Muted state: dim and desaturated so the current state reads instantly. */
+#audio-toggle[aria-pressed='false'] {
+  color: #8a949a;
+  border-color: rgba(138, 148, 154, 0.35);
+  opacity: 0.6;
+}
+
 /* ---------- Completion screen (Phase 10) ---------- */
 #end-screen {
   position: fixed;

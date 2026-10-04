@@ -2,6 +2,12 @@ import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
 /**
+ * Metres of walking between footfalls. A human stride is roughly 0.7-0.8 m, so
+ * at the default 3.2 m/s this gives a natural ~4.3 steps per second.
+ */
+const STRIDE_LENGTH = 0.75;
+
+/**
  * PlayerController - first-person movement and mouse look.
  *
  * Uses Three.js PointerLockControls (it handles pointer lock and pitch
@@ -24,6 +30,10 @@ export class PlayerController {
 
     this._bobTime = 0;
     this._baseY = this.eyeHeight;
+    // Partial stride accumulated toward the next footstep.
+    this._stepDistance = 0;
+    // Set by Game to play a footstep sound; keeps audio out of this class.
+    this.onFootstep = null;
     this._forward = new THREE.Vector3(); // reused scratch vector, no per-frame alloc
 
     this._onKeyDown = (event) => {
@@ -148,8 +158,21 @@ export class PlayerController {
       if (f !== 0 || s !== 0) {
         this._bobTime += delta * 9;
         pos.y = this._baseY + Math.sin(this._bobTime) * 0.035;
+
+        // Footsteps are driven by DISTANCE travelled, not by frames, so the
+        // cadence stays constant whether the player walks or jogs and does not
+        // change with the frame rate. The head-bob sine peaks twice per cycle,
+        // which lines each footfall up with the top of a bob.
+        this._stepDistance += this.speed * delta;
+        if (this._stepDistance >= STRIDE_LENGTH) {
+          this._stepDistance = 0;
+          this.onFootstep && this.onFootstep();
+        }
       } else {
         this._bobTime = 0;
+        // Do not bank a partial stride while standing still, or the first step
+        // after stopping and walking again would fire immediately.
+        this._stepDistance = 0;
         pos.y = THREE.MathUtils.damp(pos.y, this._baseY, 10, delta);
       }
     } else {

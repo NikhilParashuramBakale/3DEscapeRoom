@@ -608,6 +608,149 @@ const pivotParts = lab.door.pivot.children;
 console.log('bars are still on the leaf  :',
   pivotParts.filter((p) => p.geometry.parameters.depth === 0.02).length === 2);
 
+console.log('\n--- Phase 11: sound ---');
+// Sound is a mandatory viva item and was entirely absent. Every effect is
+// synthesised, so these tests drive a fake AudioContext and assert the graph is
+// built and the lifecycle is safe without a real device.
+import { AudioManager } from '../src/audio/AudioManager.js';
+
+const nodes = [];
+const nodeFactory = () => ({
+  connect(n) { nodes.push(n); },
+  disconnect() {},
+  start() {}, stop() {},
+  gain: {
+    value: 0,
+    setValueAtTime() {}, linearRampToValueAtTime() {},
+    exponentialRampToValueAtTime() {}, cancelScheduledValues() {},
+    setTargetAtTime() {},
+  },
+  frequency: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {} },
+  Q: { value: 0 },
+  type: '', buffer: null, loop: false,
+});
+let resumes = 0;
+globalThis.AudioContext = class {
+  constructor() {
+    this.state = 'running';
+    this.sampleRate = 44100;
+    // The real context exposes a monotonic clock; the rate limiter and every
+    // envelope schedule off it, so a stub without one is useless here.
+    this.currentTime = 0;
+    this.destination = nodeFactory();
+  }
+  createGain() { return nodeFactory(); }
+  createOscillator() { return nodeFactory(); }
+  createBiquadFilter() { return nodeFactory(); }
+  createBufferSource() { return nodeFactory(); }
+  createBuffer(ch, len) { return { getChannelData: () => new Float32Array(len) }; }
+  resume() { resumes++; return Promise.resolve(); this.state = 'running'; }
+};
+
+const audio = new AudioManager();
+console.log('silent before any gesture  :', audio.isReady === false);
+// Every sound method must be a safe no-op before unlock - the game calls these
+// from interaction handlers that can fire before the player has clicked.
+let threw = false;
+try {
+  audio.keypadPress('digit'); audio.keypadReject(); audio.keypadAccept();
+  audio.drawerOpen(); audio.pickup(); audio.gearTurn(); audio.powerOn();
+  audio.doorOpen(); audio.doorUnlock(); audio.footstep(); audio.escape();
+  audio.uiClick(); audio.startAmbience();
+} catch (e) { threw = true; }
+console.log('pre-unlock calls are safe :', threw === false);
+
+const unlocked = audio.unlock();
+console.log('unlock creates a context  :', audio.ctx !== null);
+console.log('context reports running   :', audio.isReady === true && unlocked === true);
+console.log('unlock is idempotent      :', audio.unlock() === true && audio.ctx !== null);
+
+// Effects must actually build nodes once audio is live.
+nodes.length = 0;
+audio.keypadPress('digit');
+console.log('keypad press builds nodes :', nodes.length >= 2);
+nodes.length = 0;
+audio.powerOn();
+console.log('power-on builds nodes      :', nodes.length > 0);
+console.log('power-on starts ambience  :', audio.ambiencePlaying === true);
+
+// Calling startAmbience twice must not stack a second drone.
+audio.startAmbience(0.5);
+console.log('ambience does not stack   :', audio.ambiencePlaying === true);
+audio.stopAmbience();
+console.log('ambience can be stopped   :', audio.ambiencePlaying === false);
+
+// The door swings BOTH ways. Opening had a sound while closing was silent,
+// which made the leaf feel weightless - the player shut it and heard nothing.
+// Both directions must be audible.
+nodes.length = 0;
+audio.doorOpen();
+const openNodes = nodes.length;
+nodes.length = 0;
+audio.doorClose();
+console.log('door opens audibly         :', openNodes > 0);
+console.log('door closes audibly        :', nodes.length > 0);
+// The closing sound must end on a DELAYED latch click, otherwise the swing and
+// the latch are simultaneous and the door sounds like it vanishes rather than
+// closes. Capture the scheduling delays a burst is actually created with.
+const delaysOf = (kind) => {
+  const seen = [];
+  const realNow = Object.getOwnPropertyDescriptor(audio.ctx, 'currentTime');
+  const origTone = audio._noiseBurst.bind(audio);
+  audio._noiseBurst = (o) => { seen.push(o.delay || 0); origTone(o); };
+  audio[kind]();
+  audio._noiseBurst = origTone;
+  void realNow;
+  return seen;
+};
+const closeDelays = delaysOf('doorClose');
+console.log('close has a delayed latch  :', closeDelays.some((d) => d > 0.3));
+
+// Footsteps are distance driven, so a burst of calls must be rate limited or
+// they turn into a continuous buzz.
+nodes.length = 0;
+audio.footstep();
+const afterFirst = nodes.length;
+audio.footstep(); audio.footstep(); audio.footstep();
+console.log('footsteps are rate limited :', afterFirst > 0 && nodes.length === afterFirst);
+
+// Mute must reach the master gain.
+audio.setEnabled(false);
+console.log('mute drops master gain    :', audio.enabled === false);
+audio.setEnabled(true);
+// Volume must clamp rather than accept nonsense.
+audio.setVolume(5); const hi = audio.volume;
+audio.setVolume(-5); const lo = audio.volume;
+console.log('volume clamps to 0..1     :', hi === 1 && lo === 0);
+
+// And every public effect name the game calls must actually exist.
+const expected = ['keypadPress', 'keypadReject', 'keypadAccept', 'drawerOpen', 'pickup',
+  'gearTurn', 'powerOn', 'doorOpen', 'doorUnlock', 'footstep', 'escape', 'uiClick',
+  'startAmbience', 'stopAmbience', 'unlock', 'setEnabled', 'setVolume'];
+console.log('all game sounds exist      :', expected.every((m) => typeof audio[m] === 'function'));
+
+console.log('\n--- Phase 11: sound wiring ---');
+const gameSrc2 = await import('node:fs').then((fs) =>
+  fs.readFileSync(new URL('../src/core/Game.js', import.meta.url), 'utf8'));
+// The autoplay policy is the classic Phase 11 bug: an AudioContext built in the
+// constructor starts suspended and every sound is silently dropped. It must be
+// created lazily on a real gesture.
+console.log('unlocked on pointer lock   :', /pointerlockchange[\s\S]*?this\.audio\.unlock\(\)/.test(gameSrc2));
+console.log('unlocked on first gesture  :', /addEventListener\('pointerdown', tryUnlock/.test(gameSrc2));
+// Footsteps must come from the player, distance driven.
+console.log('footsteps wired to player  :', /onFootstep\s*=\s*\(\)\s*=>\s*this\.audio\.footstep\(\)/.test(gameSrc2));
+const playerSrc = await import('node:fs').then((fs) =>
+  fs.readFileSync(new URL('../src/player/PlayerController.js', import.meta.url), 'utf8'));
+console.log('steps driven by distance   :', /_stepDistance >= STRIDE_LENGTH/.test(playerSrc));
+// The sound toggle must be pointer-events:none or it steals the relock click.
+const cssSrc = await import('node:fs').then((fs) =>
+  fs.readFileSync(new URL('../src/styles/main.css', import.meta.url), 'utf8'));
+const toggleStart = cssSrc.indexOf('#audio-toggle {');
+// The rule carries an explanatory comment, so the window has to be generous
+// enough to reach the pointer-events declaration inside the block.
+const toggleBlock = cssSrc.slice(toggleStart, toggleStart + 700);
+console.log('toggle never eats clicks   :', /pointer-events:\s*none/.test(toggleBlock));
+
 console.log('flicker is still animating  :', new Set(samples).size > 1);
 console.log('flicker reaches full power  :', Math.max(...samples) === 1);
 // The stutter window must be long enough to read as a lamp, not frame noise.

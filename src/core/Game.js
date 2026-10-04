@@ -11,6 +11,7 @@ import { GameMessages } from '../ui/GameMessages.js';
 import { KeypadPanel } from '../ui/KeypadPanel.js';
 import { EndScreen } from '../ui/EndScreen.js';
 import { OBJECTIVES } from '../ui/GameMessages.js';
+import { AudioManager } from '../audio/AudioManager.js';
 import { CODE_SHEET_LINES, CODE_SHEET_TITLE, CODE_SHEET_HINT } from '../puzzles/CodeSheet.js';
 
 /**
@@ -52,6 +53,12 @@ export class Game {
       player: this.player,
     });
 
+    // Sound (Phase 11). The context is created lazily on the first gesture
+    // (see the pointer-lock listener), because browsers refuse to start audio
+    // outside a user interaction.
+    this.audio = new AudioManager();
+    this.player.onFootstep = () => this.audio.footstep();
+
     // Completion overlay (Phase 10). The game is fully rebuildable from
     // scratch, so "Play again" simply reloads the page rather than trying to
     // unwind and reset every system.
@@ -75,8 +82,50 @@ export class Game {
 
     // Dim / brighten the crosshair based on pointer-lock state.
     document.addEventListener('pointerlockchange', () => {
-      this.crosshair.el.classList.toggle('locked', this.player.controls.isLocked);
+      const locked = this.player.controls.isLocked;
+      this.crosshair.el.classList.toggle('locked', locked);
+      // Pointer lock is a genuine user gesture, so this is the safest moment to
+      // start the AudioContext. Doing it in the constructor would leave it
+      // suspended forever under the autoplay policy.
+      if (locked) this.audio.unlock();
     });
+
+    // Also unlock on the first keypress or click anywhere, in case the player
+    // never acquires pointer lock (e.g. pressing Escape first).
+    const tryUnlock = () => this.audio.unlock();
+    window.addEventListener('keydown', tryUnlock, { once: true });
+    window.addEventListener('pointerdown', tryUnlock, { once: true });
+
+    this._initAudioToggle();
+  }
+
+  /**
+   * Wire the on-screen sound indicator to the M key.
+   *
+   * The indicator is a label, not a button: it has pointer-events:none on
+   * purpose, because a clickable element over the canvas would swallow the
+   * click the player uses to re-acquire pointer lock. M is the real control and
+   * works while locked, which a button could not.
+   */
+  _initAudioToggle() {
+    this.audioToggleEl = document.getElementById('audio-toggle');
+    if (!this.audioToggleEl) return;
+
+    const apply = (on) => {
+      this.audio.setEnabled(on);
+      this.audioToggleEl.textContent = on ? 'SOUND ON' : 'SOUND OFF';
+      this.audioToggleEl.setAttribute('aria-pressed', String(on));
+      this._soundOn = on;
+    };
+    apply(true);
+
+    this._onToggleKey = (event) => {
+      if (event.code !== 'KeyM') return;
+      // Let the player mute before ever clicking, without unlocking the mouse.
+      this.audio.unlock();
+      apply(!this._soundOn);
+    };
+    window.addEventListener('keydown', this._onToggleKey);
   }
 
   async init() {
@@ -116,6 +165,7 @@ export class Game {
       distance: 3.2,
       onInteract: () => {
         if (lab.door.isLocked) {
+          this.audio.keypadReject();
           this.messages.flash(
             this.gameState.gearPuzzleSolved
               ? 'Unlocked. Walk through it.'
@@ -124,7 +174,14 @@ export class Game {
           );
         } else {
           lab.door.toggle();
-          if (lab.door.isOpen) this.messages.flash('The door swings open. Cold air.', { tone: 'good' });
+          // The door can be swung either way, so each direction gets its own
+          // sound. Closing used to be silent, which made the leaf feel weightless.
+          if (lab.door.isOpen) {
+            this.audio.doorOpen();
+            this.messages.flash('The door swings open. Cold air.', { tone: 'good' });
+          } else {
+            this.audio.doorClose();
+          }
         }
       },
     });
@@ -156,6 +213,7 @@ export class Game {
           return;
         }
         lab.drawer.toggle();
+        this.audio.drawerOpen();
         if (lab.drawer.isOpen) this._revealDrawerKey();
       },
     });
@@ -208,6 +266,7 @@ export class Game {
   _readCodeSheet() {
     this.gameState.set('hasReadCodeSheet', true);
     this.prompt.hide();
+    this.audio.uiClick();
     this.readingPanel.open({
       title: CODE_SHEET_TITLE,
       lines: CODE_SHEET_LINES,
@@ -245,6 +304,13 @@ export class Game {
     // The panel only reports presses; this callback owns the decision.
     this.keypadPanel.onSubmit = (entry) => this._submitKeypadCode(entry);
     this.keypadPanel.onClose = () => this.prompt.hide();
+    // Each button press gets its own blip. KeypadPanel stays silent so it does
+    // not need to know about audio at all.
+    this.keypadPanel.onKey = (key) => {
+      if (key === 'OK') this.audio.keypadPress('ok');
+      else if (key === 'C') this.audio.keypadPress('clear');
+      else this.audio.keypadPress('digit');
+    };
   }
 
   /** Validate the entered code and unlock the drawer on success. */
@@ -258,6 +324,7 @@ export class Game {
       this.keypadPanel._entry = '';
       this.keypadPanel._render();
       this.keypadPanel.reject();
+      this.audio.keypadReject();
       this.keypadPanel.setStatus('Access denied.');
       this.messages.flash('Wrong code.', { tone: 'bad' });
       return;
@@ -268,6 +335,10 @@ export class Game {
     this.laboratory.drawer.unlock();
     this.laboratory.drawer.open();
     this._revealDrawerKey();
+    this.audio.keypadAccept();
+    // Stagger the drawer slide so it starts just after the acceptance chime
+    // instead of underneath it.
+    setTimeout(() => this.audio.drawerOpen(), 180);
 
     this.keypadPanel.setStatus('Access granted.');
     this.keypadPanel.close();
@@ -288,6 +359,7 @@ export class Game {
     this.gameState.set('hasKey', true);
     this.laboratory.drawerKey.visible = false;
     this._keyInteraction.setEnabled(false);
+    this.audio.pickup();
     this.messages.flash('A small brass key.', { tone: 'good' });
   }
 
@@ -305,11 +377,15 @@ export class Game {
       return;
     }
     if (!this.gameState.hasKey) {
+      // A dull, dead thud - the gear is seized, so it should not sound like a
+      // successful turn.
+      this.audio.keypadReject();
       this.messages.flash('The gear is seized. Something is holding the lock.', { tone: 'bad' });
       return;
     }
 
     this.gearTurns++;
+    this.audio.gearTurn();
     const solved = lab.machine.turnDriver(1);
 
     if (solved) {
@@ -333,6 +409,9 @@ export class Game {
     lab.door.unlock();
     lab.lighting.setActive();
 
+    this.audio.powerOn();
+    // The deadbolt lets go a beat after the machine settles.
+    setTimeout(() => this.audio.doorUnlock(), 700);
     this.messages.flash('The machine hums to life. Lights return.', { tone: 'good' });
     this.messages.flash('Somewhere behind you, a deadbolt releases.');
   }
@@ -355,6 +434,7 @@ export class Game {
     // frames of walking keep counting and the displayed time drifts.
     this.runSeconds = Math.max(0, this._elapsed - this.runStartedAt);
     this.messages.clear();
+    this.audio.escape();
     this.endScreen.show({
       seconds: this.runSeconds,
       gearTurns: this.gearTurns,
