@@ -50,6 +50,34 @@ export class Lighting {
     this._build();
   }
 
+  /**
+   * Every ceiling tube shares this housing material.
+   *
+   * `_addTube` used to construct a fresh MeshStandardMaterial per fixture, so
+   * four identical-looking lamps meant four distinct materials and four shader
+   * programs / uniform uploads. One shared instance keeps the draw calls
+   * batchable. Nothing about the look changes - the parameters are identical.
+   */
+  _getHousingMaterial() {
+    if (!this._housingMat) {
+      this._housingMat = new THREE.MeshStandardMaterial({
+        color: 0x9aa3aa,
+        roughness: 0.5,
+        metalness: 0.7,
+      });
+      // The housing box is also identical on every fixture, so share the
+      // geometry too rather than allocating four copies of the same vertices.
+      this._housingGeo = new THREE.BoxGeometry(1.6, 0.12, 0.3);
+    }
+    return this._housingMat;
+  }
+
+  /** Shared housing geometry (see _getHousingMaterial). */
+  _getHousingGeometry() {
+    this._getHousingMaterial();   // ensures both are created together
+    return this._housingGeo;
+  }
+
   _build() {
     // ---- Ambient fill ----------------------------------------------------
     // Generous ambient so no surface is ever fully black.
@@ -113,10 +141,10 @@ export class Lighting {
     const group = new THREE.Group();
     group.position.set(x, y, z);
 
-    // Metal housing
+    // Metal housing (shared across every fixture - see _getHousingMaterial).
     const housing = new THREE.Mesh(
-      new THREE.BoxGeometry(1.6, 0.12, 0.3),
-      new THREE.MeshStandardMaterial({ color: 0x9aa3aa, roughness: 0.5, metalness: 0.7 })
+      this._getHousingGeometry(),
+      this._getHousingMaterial()
     );
     housing.position.y = 0.08;
     group.add(housing);

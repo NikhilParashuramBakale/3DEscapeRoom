@@ -412,6 +412,203 @@ body,
   outline: none;
 }
 
+/* ---------- Settings panel (Phase 13) ---------- */
+#settings-panel {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 7, 10, 0.72);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  z-index: 18;
+}
+
+#settings-panel.open {
+  opacity: 1;
+}
+
+.settings-card {
+  width: min(460px, 92vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  padding: 22px 26px;
+  background: var(--panel);
+  border: 1px solid rgba(127, 240, 216, 0.3);
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  transform: translateY(8px) scale(0.98);
+  transition: transform 0.18s ease;
+}
+
+#settings-panel.open .settings-card {
+  transform: translateY(0) scale(1);
+}
+
+.settings-card h2 {
+  margin-bottom: 18px;
+  font-size: 0.95rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 1fr 130px 48px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 13px;
+}
+
+.settings-row label {
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+/* Checkbox rows have no value readout, so let the control sit on the right. */
+.settings-toggle-row {
+  grid-template-columns: 1fr auto;
+}
+
+.settings-value {
+  font: 0.78rem Consolas, 'Courier New', monospace;
+  color: var(--accent);
+  text-align: right;
+}
+
+/* Range inputs, restyled so the panel does not ship browser-default sliders. */
+.settings-row input[type='range'] {
+  width: 100%;
+  height: 4px;
+  appearance: none;
+  background: rgba(127, 240, 216, 0.22);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.settings-row input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(127, 240, 216, 0.5);
+}
+
+.settings-row input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.settings-row input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: #7ff0d8;
+  cursor: pointer;
+}
+
+.settings-controls {
+  margin: 20px 0 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(127, 240, 216, 0.16);
+}
+
+.settings-controls h3 {
+  margin-bottom: 9px;
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.settings-controls ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-controls li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.76rem;
+}
+
+.settings-controls li span {
+  margin-left: 6px;
+  opacity: 0.75;
+}
+
+.settings-controls kbd {
+  min-width: 22px;
+  padding: 2px 6px;
+  background: rgba(127, 240, 216, 0.1);
+  border: 1px solid rgba(127, 240, 216, 0.3);
+  border-radius: 3px;
+  font: 0.68rem Consolas, 'Courier New', monospace;
+  color: var(--accent);
+  text-align: center;
+}
+
+.settings-resume {
+  width: 100%;
+  padding: 9px;
+  background: transparent;
+  border: 1px solid rgba(127, 240, 216, 0.45);
+  border-radius: 4px;
+  color: var(--accent);
+  font: 0.78rem Consolas, 'Courier New', monospace;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.settings-resume:hover,
+.settings-resume:focus-visible {
+  background: rgba(127, 240, 216, 0.14);
+  outline: none;
+}
+
+/* ---------- Settings button (Phase 13) ---------- */
+#settings-button {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  background: var(--panel);
+  border: 1px solid rgba(127, 240, 216, 0.28);
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: 1.05rem;
+  cursor: pointer;
+  z-index: 8;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+#settings-button:hover,
+#settings-button:focus-visible {
+  background: rgba(127, 240, 216, 0.14);
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* The gear sits over the canvas, so it must not swallow the click the player
+   uses to re-acquire pointer lock - Esc remains the primary route. */
+#settings-button.paused-ui {
+  pointer-events: none;
+  opacity: 0.4;
+}
+
 /* ---------- Sound toggle (Phase 11) ---------- */
 #audio-toggle {
   position: fixed;

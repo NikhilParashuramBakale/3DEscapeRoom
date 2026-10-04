@@ -63,6 +63,20 @@ export class InteractionManager {
       this._current = null;
     }
 
+    // While a modal owns the screen the player cannot act, so the raycast is
+    // pure waste. intersectObjects walks every hitbox and tests every bounding
+    // sphere, and with a keypad or document open the result is discarded
+    // immediately afterwards anyway.
+    //
+    // This is NOT gated on pointer lock: the crosshair should still track what
+    // the player is looking at while they hold no button, which is the normal
+    // state once they press Esc.
+    if (this.player && this.player.blocked) {
+      if (this.crosshair) this.crosshair.setActive(false);
+      if (this.prompt) this.prompt.hide();
+      return;
+    }
+
     // Fire the ray down the camera's centre axis.
     this.raycaster.setFromCamera({ x: 0, y: 0 }, this.camera);
     const hits = this.raycaster.intersectObjects(this._hitboxes, false);

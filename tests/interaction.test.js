@@ -506,24 +506,28 @@ console.log('\n--- Phase 10: completion screen ---');
 // that with a real completion overlay, so test its pieces.
 import { EndScreen, formatDuration } from '../src/ui/EndScreen.js';
 
-// The shared document stub above only models <canvas>. The end screen is plain
+// The shared document stub above only models <canvas>. The UI panels are plain
 // DOM, so give createElement a small element model for this block.
 const classListFor = (el) => ({
   _set: new Set(el._classes || []),
   add(...c) { this._set.add(c.join(' ')); el._classes = [...this._set]; },
   remove(...c) { for (const n of c) this._set.delete(n); el._classes = [...this._set]; },
   contains(c) { return this._set.has(c); },
+  toggle(c, on) { on ? this.add(c) : this.remove(c); },
 });
 const makeEl = (tag) => ({
   tag, _classes: [], textContent: '', innerHTML: '', offsetWidth: 0,
-  listeners: {},
+  value: '', checked: false, type: '', listeners: {},
   classList: null,
   addEventListener(t, fn) { (this.listeners[t] ||= []).push(fn); },
   appendChild() {},
   focus() {},
+  setAttribute() {},
   click() { for (const fn of this.listeners.click || []) fn(); },
-  // The panel looks up several stat slots and the restart button by class; hand
-  // back a stable child per selector so listeners attach somewhere real.
+  // Fire a named listener, e.g. to simulate 'input' / 'change' on a slider.
+  fire(t) { for (const fn of this.listeners[t] || []) fn({ target: this }); },
+  // The panel looks up several stat slots and buttons by class or id; hand back
+  // a stable child per selector so listeners attach somewhere real.
   _children: {},
   querySelector(sel) {
     this._children[sel] ||= makeEl('div');
@@ -794,6 +798,198 @@ lab12.lighting.update(1 / 60);
 // and that its window is long enough. While it is disabled `update()` skips
 // scheduling entirely, so the window would read as 0 and fail.
 lab12.lighting.setFlickerEnabled(true);
+
+console.log('\n--- Phase 13: settings panel ---');
+// Regression risks this phase has to lock down: localStorage may throw (private
+// mode / disabled), Esc must not steal the key from a puzzle modal, and the
+// projection matrix must actually be rebuilt when the FOV slider moves.
+import { SettingsPanel, loadSettings, saveSettings, DEFAULT_SETTINGS } from '../src/ui/SettingsPanel.js';
+
+const store = new Map();
+// The richer DOM stub installed for the EndScreen block is uninstalled by now,
+// so reinstall it here: SettingsPanel builds real inputs and buttons.
+globalThis.document.createElement = (tag) => {
+  const el = makeEl(tag);
+  el.classList = classListFor(el);
+  return el;
+};
+globalThis.localStorage = {
+  getItem: (k) => (store.has(k) ? store.get(k) : null),
+  setItem: (k, v) => store.set(k, String(v)),
+  removeItem: (k) => store.delete(k),
+};
+console.log('defaults on first run      :',
+  loadSettings().fov === DEFAULT_SETTINGS.fov && loadSettings().sensitivity === 1);
+console.log('settings persist           :', saveSettings({ fov: 90 }) === true &&
+  loadSettings().fov === 90);
+
+// A file saved by an older build may be missing keys added later. It must merge
+// with the defaults rather than yielding undefined for those fields.
+store.set('forgotten-lab.settings', JSON.stringify({ fov: 88 }));
+const merged = loadSettings();
+console.log('partial saves merge safely :', merged.fov === 88 && merged.volume === DEFAULT_SETTINGS.volume);
+
+// Storage that throws must never take the game down.
+globalThis.localStorage = {
+  getItem() { throw new Error('SecurityError'); },
+  setItem() { throw new Error('SecurityError'); },
+};
+let storageThrew = false;
+try { loadSettings(); saveSettings({}); } catch { storageThrew = true; }
+console.log('throwing storage is survivable:', storageThrew === false);
+console.log('throwing storage falls back:', loadSettings().fov === DEFAULT_SETTINGS.fov);
+globalThis.localStorage = {
+  getItem: (k) => (store.has(k) ? store.get(k) : null),
+  setItem: (k, v) => store.set(k, String(v)),
+};
+
+// The panel must build, open, and report changes.
+const changed = {};
+const playerStub13 = { controls: { isLocked: false, unlock() { this.isLocked = false; } } };
+const panel13 = new SettingsPanel({ appendChild() {} }, {
+  player: playerStub13,
+  onChange: (k, v) => { changed[k] = v; },
+});
+console.log('panel starts closed        :', panel13.isOpen === false);
+panel13.open();
+console.log('panel opens                :', panel13.isOpen === true);
+panel13.resumeBtn.click();
+console.log('resume closes it           :', panel13.isOpen === false);
+console.log('opening twice is safe      :', (panel13.open(), panel13.open(), panel13.isOpen === true));
+
+// Sliders: 'input' drives the readout, 'change' reports the value. Reporting on
+// 'input' would rebuild the projection matrix on every mouse movement.
+panel13.fovEl.value = '95';
+panel13.fovEl.fire('input');
+console.log('drag does not report yet  :', changed.fov === undefined);
+panel13.fovEl.fire('change');
+console.log('release reports the value :', changed.fov === 95);
+panel13.shadowsEl.checked = false;
+panel13.shadowsEl.fire('change');
+console.log('shadow toggle reports     :', changed.shadows === false);
+
+// applySettings must write values back into the controls.
+panel13.applySettings({ sensitivity: 2.4, fov: 88, volume: 0.25, shadows: false });
+console.log('applySettings fills inputs:', panel13.fovEl.value === 88 &&
+  panel13.sensitivityEl.value === 2.4 && panel13.shadowsEl.checked === false);
+
+// The stored settings shape must match what Game applies.
+console.log('settings keys are expected :',
+  Object.keys(DEFAULT_SETTINGS).every((k) => typeof DEFAULT_SETTINGS[k] === (k === 'shadows' ? 'boolean' : 'number')));
+console.log('\n--- Phase 14: optimization ---');
+// Measure the real scene rather than guessing at bottlenecks. The brief calls
+// for a comfortable 60 fps on an RTX 4050 laptop, so the two costs that matter
+// are draw calls (how many meshes get submitted) and shadow casters (how many
+// times the shadow pass redraws the scene).
+const sceneLab = lab.group.parent || lab.group;
+let meshCount = 0;
+let triCount = 0;
+const materialSet = new Set();
+const geomSet = new Set();
+sceneLab.traverse((o) => {
+  if (!o.isMesh) return;
+  meshCount++;
+  const g = o.geometry;
+  if (g) {
+    geomSet.add(g.uuid);
+    const pos = g.attributes && g.attributes.position;
+    // Non-indexed boxes report position.count as the vertex count; indexed
+    // geometry needs the index length to get a true triangle count.
+    const tris = g.index ? g.index.count / 3 : (pos ? pos.count / 3 : 0);
+    triCount += tris;
+  }
+  // Count each distinct material once - sharing is what keeps draw calls down.
+  const mats = Array.isArray(o.material) ? o.material : [o.material];
+  for (const m of mats) if (m) materialSet.add(m.uuid);
+});
+
+console.log('meshes in scene            :', meshCount, `(~${meshCount} draw calls)`);
+console.log('triangles in scene         :', Math.round(triCount));
+console.log('distinct materials         :', materialSet.size);
+console.log('shared geometries          :', geomSet.size, 'of', meshCount, 'meshes');
+
+// Shadow casters are the multiplier: each one redraws the whole scene into its
+// own shadow map, so this count dominates GPU cost far more than the mesh count.
+let casters = 0;
+let shadowLights = 0;
+sceneLab.traverse((o) => {
+  if (o.isLight && o.castShadow) {
+    shadowLights++;
+    casters++;
+  }
+});
+console.log('shadow-casting lights      :', shadowLights, '(budget <= 2)');
+console.log('shadow budget respected    :', shadowLights <= 2);
+
+// Nothing here should be a high-poly asset: the brief asks for a low/medium
+// poly environment that runs comfortably on a laptop.
+console.log('triangle budget respected  :', triCount < 120000);
+
+console.log('\n--- Phase 14: frame-loop hygiene ---');
+// Renderer settings that cost real performance if left on.
+const smSrc = await import('node:fs').then((fs) =>
+  fs.readFileSync(new URL('../src/core/SceneManager.js', import.meta.url), 'utf8'));
+// devicePixelRatio must be clamped: an uncapped 3x phone ratio quadruples the
+// fill cost of every full-screen pass.
+console.log('pixel ratio is clamped     :', /setPixelRatio\(Math\.min\(window\.devicePixelRatio,\s*2\)\)/.test(smSrc));
+// Shadows should be PCFSoft at a bounded map size, not PCFSoftSoft/VSM which
+// are far more expensive per pixel.
+console.log('shadow filtering is sane   :', /shadowMap\.type = THREE\.PCFSoftShadowMap/.test(smSrc));
+// The map sizes live in Lighting.js, where the shadow-casting lights are
+// configured - not in SceneManager.
+const lightSrc = await import('node:fs').then((fs) =>
+  fs.readFileSync(new URL('../src/environment/Lighting.js', import.meta.url), 'utf8'));
+console.log('shadow map size is bounded :', /mapSize\.set\(2048, 2048\)/.test(lightSrc) &&
+  /mapSize\.set\(1024, 1024\)/.test(lightSrc));
+
+// Material.needsUpdate is expensive (it forces a shader recompile). It must
+// never sit in the per-frame update path.
+const gameSrc14 = await import('node:fs').then((fs) =>
+  fs.readFileSync(new URL('../src/core/Game.js', import.meta.url), 'utf8'));
+const updateBody = gameSrc14.slice(gameSrc14.indexOf('_update(dt, elapsed)'));
+const perFrame = updateBody.slice(0, updateBody.indexOf('\n  _updateFps'));
+console.log('no shader recompile per frame:', !/needsUpdate/.test(perFrame));
+
+console.log('\n--- Phase 14: sharing ---');
+// _addTube built a fresh material AND a fresh BoxGeometry for every ceiling
+// fixture. Four identical-looking lamps meant four identical shaders and four
+// copies of the same vertices. Both are now shared instances.
+const lighting14 = new (Object.getPrototypeOf(lab.lighting).constructor)(new T.Scene());
+const housings = [];
+lighting14.scene.traverse((o) => { if (o.isMesh && o.geometry.parameters && o.geometry.parameters.width === 1.6) housings.push(o); });
+console.log('lamp housings found        :', housings.length >= 4, `(${housings.length})`);
+console.log('housing material is shared :',
+  housings.length >= 2 && housings.every((h) => h.material === housings[0].material));
+console.log('housing geometry is shared :',
+  housings.length >= 2 && housings.every((h) => h.geometry === housings[0].geometry));
+
+// The tube emissive materials must stay SEPARATE: update() writes a different
+// emissiveIntensity into each one as the room level and flicker change. Sharing
+// them would make all four tubes pulse identically and break the flicker.
+const tubes = [];
+lighting14.scene.traverse((o) => { if (o.isMesh && o.geometry.type === 'CylinderGeometry') tubes.push(o); });
+console.log('tube materials stay unique :',
+  tubes.length >= 2 && new Set(tubes.map((t) => t.material)).size === tubes.length);
+
+console.log('\n--- Phase 14: raycast gating ---');
+// With a modal open the raycast result is thrown away, so it must be skipped.
+const imSrc = await import('node:fs').then((fs) =>
+  fs.readFileSync(new URL('../src/interaction/InteractionManager.js', import.meta.url), 'utf8'));
+// Parse the real code, not the prose: the explanatory comments mention both
+// 'player.blocked' and 'intersectObjects', so a plain indexOf picks the comment
+// text and compares the wrong offsets. Strip comments first, then locate the
+// actual statements.
+const updStart = imSrc.indexOf('/** Per-frame: raycast');
+const rawBody = imSrc.slice(updStart, updStart + 2000);
+const codeBody = rawBody.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+const gateRe = /if\s*\(\s*this\.player\s*&&\s*this\.player\.blocked\s*\)[\s\S]*?return;/;
+const gate = codeBody.match(gateRe);
+const castPos = codeBody.indexOf('intersectObjects');
+console.log('raycast skipped when blocked:',
+  !!gate && castPos > -1 && gate.index < castPos);
+// It must NOT be gated on pointer lock: the crosshair should still highlight
+// while the player is simply not holding the mouse button.
+console.log('not gated on pointer lock  :', !/isLocked[\s\S]{0,200}intersectObjects/.test(codeBody));
 
 console.log('flicker is still animating  :', new Set(samples).size > 1);
 console.log('flicker reaches full power  :', Math.max(...samples) === 1);

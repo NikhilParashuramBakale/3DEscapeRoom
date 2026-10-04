@@ -12,6 +12,7 @@ import { KeypadPanel } from '../ui/KeypadPanel.js';
 import { EndScreen } from '../ui/EndScreen.js';
 import { OBJECTIVES } from '../ui/GameMessages.js';
 import { AudioManager } from '../audio/AudioManager.js';
+import { SettingsPanel, loadSettings, saveSettings } from '../ui/SettingsPanel.js';
 import { CODE_SHEET_LINES, CODE_SHEET_TITLE, CODE_SHEET_HINT } from '../puzzles/CodeSheet.js';
 
 /**
@@ -52,6 +53,16 @@ export class Game {
     this.keypadPanel = new KeypadPanel(document.getElementById('app'), {
       player: this.player,
     });
+
+    // Settings / controls (Phase 13). Options are applied immediately and
+    // persisted, so a reload keeps the player's choices.
+    this.settings = loadSettings();
+    this.settingsPanel = new SettingsPanel(document.getElementById('app'), {
+      player: this.player,
+      onChange: (key, value) => this._applySetting(key, value),
+      onResume: () => this._onSettingsClosed(),
+    });
+    this.settingsPanel.applySettings(this.settings);
 
     // Sound (Phase 11). The context is created lazily on the first gesture
     // (see the pointer-lock listener), because browsers refuse to start audio
@@ -97,6 +108,11 @@ export class Game {
     window.addEventListener('pointerdown', tryUnlock, { once: true });
 
     this._initAudioToggle();
+    this._initSettingsButton();
+
+    // Re-apply anything restored from localStorage so the first frame already
+    // reflects the saved options.
+    for (const [key, value] of Object.entries(this.settings)) this._applySetting(key, value);
   }
 
   /**
@@ -107,6 +123,97 @@ export class Game {
    * click the player uses to re-acquire pointer lock. M is the real control and
    * works while locked, which a button could not.
    */
+  /**
+   * Wire the gear icon and the Esc key to the settings panel.
+   *
+   * Esc needs care: the reading panel and keypad each consume it to close
+   * themselves. Without this ordering the first Esc would be swallowed by a
+   * puzzle modal instead of pausing, so the settings check runs only when no
+   * other modal owns the screen.
+   */
+  _initSettingsButton() {
+    this.settingsButton = document.getElementById('settings-button');
+    if (this.settingsButton) {
+      this.settingsButton.addEventListener('click', () => {
+        this.settingsPanel.isOpen ? this.settingsPanel.close() : this._openSettings();
+      });
+    }
+
+    this._onEscKey = (event) => {
+      if (event.code !== 'Escape') return;
+      // A puzzle modal owns the screen: let it handle Esc itself.
+      if (this.readingPanel.isOpen || this.keypadPanel.isOpen) return;
+
+      event.preventDefault();
+      if (this.settingsPanel.isOpen) {
+        this.settingsPanel.close();
+        if (this.settingsButton) this.settingsButton.classList.remove('paused-ui');
+      } else {
+        this._openSettings();
+      }
+    };
+    window.addEventListener('keydown', this._onEscKey);
+  }
+
+  /**
+   * Apply one settings change to the live systems and persist it.
+   *
+   * FOV and aspect must go through updateProjectionMatrix(), otherwise the
+   * projection matrix is only rebuilt on resize and the slider looks broken.
+   */
+  _applySetting(key, value) {
+    this.settings[key] = value;
+    saveSettings(this.settings);
+
+    switch (key) {
+      case 'sensitivity':
+        // PointerLockControls.pointerSpeed scales movementX/movementY directly.
+        this.player.controls.pointerSpeed = value;
+        break;
+      case 'fov':
+        this.camera.fov = value;
+        this.camera.updateProjectionMatrix();
+        break;
+      case 'volume':
+        this.audio.setVolume(value);
+        break;
+      case 'shadows':
+        // Both flags matter: `enabled` alone leaves already-rendered shadow
+        // maps bound, and the caster flags decide what is drawn into them.
+        this.renderer.shadowMap.enabled = !!value;
+        this.scene.traverse((o) => {
+          if (o.isLight && o.shadow) {
+            o.castShadow = !!value && o.userData.wantsShadow !== false;
+          }
+        });
+        // Materials must recompile for the define to take effect.
+        this.scene.traverse((o) => {
+          if (o.isMesh && o.material) o.material.needsUpdate = true;
+        });
+        break;
+      
+      default:
+        break;
+    }
+  }
+
+  /** Re-lock the pointer on resume, but only if the player had it locked. */
+  _onSettingsClosed() {
+    if (this._resumeWithLock) {
+      this._resumeWithLock = false;
+      this.player.controls.lock();
+    }
+  }
+
+  _openSettings() {
+    if (this.settingsPanel.isOpen) return;
+    // Remember whether we are mid-game so resume can restore the pointer lock.
+    this._resumeWithLock = this.player.controls.isLocked;
+    this.settingsPanel.open();
+    if (this.settingsButton) this.settingsButton.classList.add('paused-ui');
+    this.messages.clear();
+  }
+
   _initAudioToggle() {
     this.audioToggleEl = document.getElementById('audio-toggle');
     if (!this.audioToggleEl) return;
@@ -456,7 +563,7 @@ export class Game {
     this.messages.update(dt);
     this._checkEscape();
     // A modal has focus: clear the prompt/crosshair so nothing competes.
-    if (this.readingPanel.isOpen || this.keypadPanel.isOpen) {
+    if (this.readingPanel.isOpen || this.keypadPanel.isOpen || this.settingsPanel.isOpen) {
       this.prompt.hide();
       this.crosshair.setActive(false);
     }
