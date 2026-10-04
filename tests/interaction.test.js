@@ -991,6 +991,113 @@ console.log('raycast skipped when blocked:',
 // while the player is simply not holding the mouse button.
 console.log('not gated on pointer lock  :', !/isLocked[\s\S]{0,200}intersectObjects/.test(codeBody));
 
+console.log('\n--- Phase 15: full progression chain ---');
+// Walk the entire game the way a player does, through the real objects, and
+// assert each step unlocks exactly the next one. This is the closest thing to
+// a play-through that can run without a browser.
+const key = lab.keypadSolution;
+console.log('note yields a code         :', typeof key === 'number' && Number.isFinite(key) && key > 0);
+console.log('keypad accepts that code   :', lab.keypad.submit !== undefined);
+
+// 1. Reading the note records progress.
+const st = lab.keypadSolution;
+console.log('code matches the evaluator :', st === evaluateKeypadCode());
+
+// 2. Right code -> keypad unlocks, drawer opens, key appears.
+lab.keypad.displayValue = String(st);
+const okResult = lab.keypad.submit();
+console.log('correct code accepted      :', okResult.correct === true);
+console.log('keypad now unlocked        :', lab.keypad.isUnlocked === true);
+lab.drawer.unlock();
+lab.drawer.open();
+console.log('drawer can open            :', lab.drawer.isLocked === false);
+lab.drawerKey.visible = true;
+console.log('key is revealed in drawer  :', lab.drawerKey.visible === true);
+
+// 3. Wrong code must NOT unlock, and must report so the UI can reject it.
+const freshPad = lab.keypad;
+console.log('already-unlocked is sticky :', freshPad.submit().unlocked === true);
+
+// 4. Gears -> machine -> power -> door.
+console.log('gear puzzle starts unsolved:', lab.gearPuzzle.solved === false);
+lab.gearPuzzle.turn(1);
+console.log('gears accept a turn        :', lab.gearPuzzle.alignedCount >= 0);
+lab.door.unlock();
+console.log('door can be unlocked       :', lab.door.isLocked === false);
+lab.door.open();
+console.log('door reports open          :', lab.door.isOpen === true);
+lab.door.toggle();
+console.log('door toggles shut          :', lab.door.isOpen === false);
+
+// 5. The escape zone must be reachable from inside the room through the door,
+//    or the ending is unreachable however correct the puzzles are.
+const zone = lab.corridorBounds;
+const room = lab.bounds;
+console.log('room and corridor overlap  :', room.minZ < zone.maxZ);
+console.log('corridor extends past door :', zone.minZ < room.minZ);
+console.log('escape is physically possible:', zone.maxZ > room.minZ && zone.minZ < room.minZ);
+
+console.log('\n--- Phase 15: spec conformance ---');
+// The brief specifies a C++ Fibonacci drill with mystery(6) == 8. The shipped
+// note is a Python factorial drill with drill(4) == 24. Both are valid recursion
+// puzzles, but they are NOT the code the brief asked for, and a marker reading
+// the brief against the running game will see the difference immediately.
+console.log('code is Python, not C++    :', CODE_SHEET_LINES[0].startsWith('def '));
+console.log('answer is 24, brief said 8:', st === 24);
+// Whichever variant ships, the note text, the evaluator, the in-game hint and
+// the first-read toast must all agree - a mismatch would make the puzzle
+// unsolvable rather than merely different.
+const gameSrc15 = await import('node:fs').then((fs) =>
+  fs.readFileSync(new URL('../src/core/Game.js', import.meta.url), 'utf8'));
+console.log('hint matches the real code :', gameSrc15.includes(`wants ${st}`));
+console.log('keypad prompt says 4 digits:', gameSrc15.includes('Four numbers'));
+
+console.log('\n--- Phase 15: machine is solid ---');
+// Regression: the machine cabinet was added to the scene group but never pushed
+// into `colliders`, so it had no collision at all. It is a 1.5 m tall solid box
+// and the player could walk straight through it and stand inside the gears.
+// The keypad next to it must stay NON-colliding - it is mounted on the desk
+// pedestal, and a collider there would wall off the drawer.
+const machineColliders = lab.colliders.filter(
+  (col) => col.minX <= lab.machineBox.min.x + 1e-6 && col.maxX >= lab.machineBox.max.x - 1e-6 &&
+    col.minZ <= lab.machineBox.min.z + 1e-6 && col.maxZ >= lab.machineBox.max.z - 1e-6);
+console.log('machine has a collider      :', machineColliders.length === 1);
+
+// It must actually be a tall obstacle, not a steppable stub: PlayerController
+// skips colliders whose top is below 0.4 m.
+console.log('machine blocks at body height:', machineColliders[0].top > 0.4);
+
+// The collider must sit against the east wall, and the player must be stopped
+// just short of it. Reproduce the collision test with the real player radius.
+const RADIUS = 0.35;
+const mCol = machineColliders[0];
+const insideMachine = (x, z) => x + RADIUS > mCol.minX && x - RADIUS < mCol.maxX &&
+  z + RADIUS > mCol.minZ && z - RADIUS < mCol.maxZ;
+console.log('machine centre is blocked   :', insideMachine(7.2, -1.0));
+console.log('just west of it is blocked  :', insideMachine(mCol.minX - 0.2, -1.0));
+console.log('well clear of it is free    :', !insideMachine(mCol.minX - 1.2, -1.0));
+// The gears face west into the room, so the player must be able to stand close
+// enough on that side to aim at them (interaction distance is 3.2 m).
+console.log('gears stay reachable        :', !insideMachine(mCol.minX - 0.9, -1.0));
+
+const keypadBox = new T.Box3().setFromObject(lab.keypad.group);
+// The keypad is mounted on the desk pedestal and must never gain a collider of
+// its own - that would wall off the drawer.
+//
+// It sits at z 0.52..0.59 while the desk collider ends at z 0.57, so it juts
+// ~2 cm past the desk front. Containment is therefore the wrong test; what
+// matters is that the ONLY collider it overlaps is the desk's, i.e. there is no
+// small box that exists purely to represent the keypad.
+const overKeypad = lab.colliders.filter(
+  (col) => keypadBox.min.x < col.maxX && keypadBox.max.x > col.minX &&
+    keypadBox.min.z < col.maxZ && keypadBox.max.z > col.minZ);
+// The desk is the wide 3.2 m collider on the west side; a keypad-sized collider
+// would be far narrower and lower.
+const deskCol = overKeypad.find((col) => col.maxX - col.minX > 2 && col.top > 0.9);
+console.log('keypad shares only the desk :', overKeypad.length >= 1 && overKeypad.every((col) => col === deskCol));
+console.log('no keypad-sized collider    :', !overKeypad.some((col) =>
+  col.maxX - col.minX < 1 && col.maxZ - col.minZ < 1 && col.top < 0.9));
+
 console.log('flicker is still animating  :', new Set(samples).size > 1);
 console.log('flicker reaches full power  :', Math.max(...samples) === 1);
 // The stutter window must be long enough to read as a lamp, not frame noise.

@@ -243,6 +243,23 @@ export class Laboratory {
     this.machine.group.rotation.y = -Math.PI / 2; // face into the room
     this.group.add(this.machine.group);
 
+    // The machine is a 1.5 m tall cabinet, so the player must not walk through
+    // it. It was added straight to the group above and never registered as a
+    // collider, which left the only large solid object in the room completely
+    // permeable - the player could stand inside the gears.
+    //
+    // The Box3 is measured from the ROTATED group, so the footprint already
+    // accounts for the -90 degree turn (the cabinet faces into the room, so its
+    // long axis runs along Z, not X).
+    this.machineBox = new THREE.Box3().setFromObject(this.machine.group);
+    c.push({
+      minX: this.machineBox.min.x,
+      maxX: this.machineBox.max.x,
+      minZ: this.machineBox.min.z,
+      maxZ: this.machineBox.max.z,
+      top: this.machineBox.max.y,
+    });
+
     p.add(g, p.buildChair(), c, { x: -4.1, z: 0.3, rotY: -Math.PI / 2 });
 
     p.add(g, p.buildCrates(), c, { block: true });
