@@ -16,6 +16,20 @@ import { SettingsPanel, loadSettings, saveSettings } from '../ui/SettingsPanel.j
 import { CODE_SHEET_LINES, CODE_SHEET_TITLE, CODE_SHEET_HINT } from '../puzzles/CodeSheet.js';
 
 /**
+ * Flags that must ALL be true before the exit door releases.
+ *
+ * Phase 3 adds `valvePuzzleSolved`, Phase 4 adds `machinePuzzleSolved` -
+ * extend this list then. Flags missing from GameState read as `undefined`
+ * (falsy), so the door correctly stays shut until those phases land.
+ */
+const REQUIRED_DOOR_FLAGS = [
+  'gearPuzzleSolved',
+  'circuitPuzzleSolved',
+  'valvePuzzleSolved',
+  'machinePuzzleSolved',
+];
+
+/**
  * Game - top-level orchestrator.
  *
  * Owns the SceneManager + GameState, builds the environment and wires all
@@ -265,7 +279,7 @@ export class Game {
   _registerInteractions() {
     const lab = this.laboratory;
 
-    // Final exit door: locked until the machine is powered (Phase 8).
+    // Final exit door: locked until every puzzle is solved (central _tryUnlockDoor gate).
     this.interactions.register(lab.door.leaf, {
       verb: 'Open',
       label: 'Door',
@@ -273,12 +287,7 @@ export class Game {
       onInteract: () => {
         if (lab.door.isLocked) {
           this.audio.keypadReject();
-          this.messages.flash(
-            this.gameState.gearPuzzleSolved
-              ? 'Unlocked. Walk through it.'
-              : 'Deadbolted. Something has to release it first.',
-            { tone: 'bad' }
-          );
+          this.messages.flash('Deadbolted. The laboratory systems are not all online yet.', { tone: 'bad' });
         } else {
           lab.door.toggle();
           // The door can be swung either way, so each direction gets its own
@@ -359,6 +368,29 @@ export class Game {
     // and keep it snug enough that the desk itself is not swallowed by it.
     sheet.hitbox.position.set(0, 0.08, 0);
     sheet.hitbox.scale.set(0.75, 0.35, 0.9);
+
+    // Electrical circuit panel (Phase 16): one interaction per switch proxy.
+    // The panel is on the south wall, so 2.6 m comfortably covers standing
+    // in front of it without reaching across the room.
+    for (let i = 0; i < lab.circuitPanel.switchProxies.length; i++) {
+      const proxy = lab.circuitPanel.switchProxies[i];
+      const sw = this.interactions.register(proxy, {
+        verb: 'Toggle',
+        label: `Switch ${i + 1}`,
+        distance: 2.6,
+        onInteract: () => this._toggleCircuitSwitch(i),
+      });
+      sw.hitbox.scale.set(0.7, 1.6, 0.7);
+    }
+
+    // Wiring memo pinned beside the panel: the deduction clue.
+    const memo = this.interactions.register(lab.circuitMemo, {
+      verb: 'Read',
+      label: 'Wiring Memo',
+      distance: 2.4,
+      onInteract: () => this._readCircuitMemo(),
+    });
+    memo.hitbox.scale.set(0.8, 0.9, 0.5);
 
     // While a document is open the prompt must not linger under the modal.
     this.readingPanel.onClose = () => this.prompt.hide();
@@ -470,6 +502,94 @@ export class Game {
     this.messages.flash('A small brass key.', { tone: 'good' });
   }
 
+  /** Read the wiring memo: the deduction clue for the circuit panel. */
+  _readCircuitMemo() {
+    this.prompt.hide();
+    this.audio.uiClick();
+    this.readingPanel.open({
+      title: 'Wiring Memo - Bay 3',
+      lines: [
+        'Rewiring after the surge. Read before touching the panel.',
+        '',
+        'The RED channel is burnt out. Leave it DISCONNECTED.',
+        'Three systems need power: GREEN, YELLOW and WHITE.',
+        'BLUE is a spare - keep it OFF.',
+        '',
+        'Set the good channels, then check the meter.',
+      ],
+      hint: 'Red OFF. Green, Yellow, White ON. Blue OFF.',
+    });
+  }
+
+  /**
+   * Flip a circuit switch (Phase 16).
+   *
+   * Gating order: gear power first (the panel is dead until the machine
+   * runs), then lock once solved. A wrong-but-complete board buzzes and
+   * flashes the warning dome; the right one latches and completes.
+   */
+  _toggleCircuitSwitch(index) {
+    const lab = this.laboratory;
+
+    if (this.gameState.circuitPuzzleSolved) {
+      this.messages.flash('The panel hums steadily. The circuit holds.', { tone: 'good' });
+      return;
+    }
+    if (!this.gameState.gearPuzzleSolved) {
+      this.audio.keypadReject();
+      this.messages.flash('Dead panel. The machine on the east wall must run first.', { tone: 'bad' });
+      return;
+    }
+
+    const changed = lab.circuitPuzzle.toggle(index);
+    if (!changed) return;
+    this.audio.switchToggle();
+
+    if (lab.circuitPuzzle.solved) {
+      this._solveCircuit();
+      return;
+    }
+
+    // All five thrown but wrong: unmistakable fault feedback.
+    if (lab.circuitPuzzle.correctCount <= 2) {
+      this.audio.circuitBuzz();
+      lab.circuitPanel.flashWarning(1.0);
+      this.messages.flash('The warning lamp flares. Wrong combination.', { tone: 'bad' });
+    } else {
+      this.messages.flash(`${lab.circuitPuzzle.correctCount} of 5 channels live.`);
+    }
+  }
+
+  /** Latch the circuit: lock the board, light the room, update state. */
+  _solveCircuit() {
+    const lab = this.laboratory;
+    if (this.gameState.circuitPuzzleSolved) return; // never complete twice
+
+    this.gameState.set('circuitPuzzleSolved', true);
+    this.audio.circuitActivate();
+    this.messages.flash('Relays engage. The panel output socket glows green.', { tone: 'good' });
+    this.messages.flash('Somewhere new, a system powers up.');
+    this._tryUnlockDoor();
+  }
+
+  /**
+   * Central exit gate: the door unlocks only once every puzzle is solved.
+   *
+   * `valvePuzzleSolved` / `machinePuzzleSolved` do not exist yet (Phases 3-4),
+   * so missing flags count as unsolved - the door stays shut until those
+   * phases land and set them. Extend REQUIRED_FLAGS, never this method.
+   */
+  _tryUnlockDoor() {
+    if (this.gameState.doorUnlocked) return;
+    const ready = REQUIRED_DOOR_FLAGS.every((flag) => this.gameState[flag]);
+    if (!ready) return;
+
+    this.gameState.set('doorUnlocked', true);
+    this.laboratory.door.unlock();
+    this.audio.doorUnlock();
+    this.messages.flash('All systems online. Somewhere, a deadbolt releases.', { tone: 'good' });
+  }
+
   /**
    * Turn the driver gear one tooth.
    *
@@ -505,22 +625,19 @@ export class Game {
     this.messages.flash(`${n} of 3 gears aligned.`);
   }
 
-  /** Restore power, light the room, and release the exit door. */
+  /** Restore power and light the room. The exit stays locked until every puzzle is solved. */
   _powerOn() {
     const lab = this.laboratory;
 
     this.gameState.set('gearPuzzleSolved', true);
     this.gameState.set('machineActive', true);
-    this.gameState.set('doorUnlocked', true);
 
-    lab.door.unlock();
     lab.lighting.setActive();
 
     this.audio.powerOn();
-    // The deadbolt lets go a beat after the machine settles.
-    setTimeout(() => this.audio.doorUnlock(), 700);
     this.messages.flash('The machine hums to life. Lights return.', { tone: 'good' });
-    this.messages.flash('Somewhere behind you, a deadbolt releases.');
+    this.messages.flash('The exit is still locked. More systems need power.');
+    this._tryUnlockDoor();
   }
 
   /** Detect the player leaving the room through the open door. */

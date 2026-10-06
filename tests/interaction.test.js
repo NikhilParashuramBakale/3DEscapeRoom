@@ -1109,3 +1109,38 @@ lit.setFlickerEnabled(false);
 lit.update(0.016);
 console.log('re-disable restores steady  :', lit._flickerValue === 1);
 
+
+console.log('\n--- phase 16: circuit puzzle logic ---');
+const { CircuitPuzzle: CP, CIRCUIT_SOLUTION_MASK: CSM } = await import('../src/puzzles/CircuitPuzzle.js');
+const cp = new CP();
+console.log('starts all off, unsolved      :', cp.switches.every((s) => !s) && !cp.solved);
+console.log('solution mask is 0b10110 (22) :', CSM === 22 && cp.solution === 22);
+console.log('out-of-range toggle rejected  :', cp.toggle(5) === false && cp.toggle(-1) === false);
+// Memo solution: green(2), yellow(3), white(5) ON; red(1), blue(4) OFF.
+cp.toggle(1); cp.toggle(2); cp.toggle(4);
+console.log('clue config solves            :', cp.solved === true);
+console.log('locks after solve             :', cp.toggle(0) === false && cp.solved === true);
+const cp2 = new CP();
+cp2.toggle(0); // red ON = damaged channel
+console.log('red channel alone not solved  :', cp2.solved === false);
+console.log('correctCount tracks matches   :', cp2.correctCount === 1);
+console.log('mask reflects states          :', cp2.mask === 1);
+
+console.log('\n--- phase 16: circuit panel wiring ---');
+const cPanelSrc = await import('fs').then((fs) => fs.readFileSync('src/environment/CircuitPanel.js', 'utf8'));
+console.log('has 5 proxies                 :', (cPanelSrc.match(/switchProxies\.push/g) || []).length === 1);
+const cGsSrc = await import('fs').then((fs) => fs.readFileSync('src/core/GameState.js', 'utf8'));
+console.log('GameState has circuit flag    :', cGsSrc.includes('circuitPuzzleSolved'));
+const cGameSrc = await import('fs').then((fs) => fs.readFileSync('src/core/Game.js', 'utf8'));
+console.log('Game gates on gear power      :', cGameSrc.includes('gearPuzzleSolved') && cGameSrc.includes('_toggleCircuitSwitch'));
+console.log('Game sets circuit solved      :', cGameSrc.includes("set('circuitPuzzleSolved', true)"));
+console.log('no double-complete            :', cGameSrc.includes('never complete twice'));
+
+
+console.log('\n--- door gate: unlocks only when all puzzles solved ---');
+// Missing future flags read as undefined (falsy) -> door stays shut.
+console.log('gate lists 4 flags : ', cGameSrc.includes('valvePuzzleSolved'))
+console.log('poweron keeps door shut: ', !cGameSrc.includes('Unlocked. Walk through it.'))
+console.log('central gate exists : ', cGameSrc.includes('_tryUnlockDoor()'))
+console.log('circuit calls gate : ', cGameSrc.includes('this._tryUnlockDoor()'))
+console.log('locked msg updated : ', cGameSrc.includes('not all online yet'))

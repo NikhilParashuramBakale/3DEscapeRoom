@@ -282,6 +282,26 @@ export class AudioManager {
     this._tone({ freq: 200, type: 'square', dur: 0.09, gain: 0.12, delay: 0.08 });
   }
 
+  /** Knife-switch throw: a hard metallic clack. */
+  switchToggle() {
+    this._noiseBurst({ dur: 0.05, gain: 0.22, freq: 3400, q: 3 });
+    this._tone({ freq: 340, type: 'square', dur: 0.05, gain: 0.1 });
+  }
+
+  /** Wrong combination: a low mains buzz that says "fault", not silence. */
+  circuitBuzz() {
+    if (!this.isReady || !this._allow('buzz', 0.8)) return;
+    this._tone({ freq: 110, type: 'sawtooth', dur: 0.35, gain: 0.12 });
+    this._tone({ freq: 116, type: 'sawtooth', dur: 0.35, gain: 0.1 });
+  }
+
+  /** Circuit complete: relays engage, then a rising swell as power latches. */
+  circuitActivate() {
+    this._noiseBurst({ dur: 0.06, gain: 0.2, freq: 3000, q: 3 });
+    this._tone({ freq: 220, type: 'square', dur: 0.08, gain: 0.12, delay: 0.1 });
+    this._tone({ freq: 440, type: 'sawtooth', dur: 0.6, gain: 0.1, slideTo: 880, delay: 0.2 });
+  }
+
   /** Footstep. Rate limited so a fast walk cannot stack them into a buzz. */
   footstep() {
     if (!this.isReady || !this._allow('step', 0.22)) return;

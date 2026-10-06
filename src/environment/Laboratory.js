@@ -8,6 +8,8 @@ import { Drawer } from '../objects/Drawer.js';
 import { evaluateKeypadCode } from '../puzzles/CodeSheet.js';
 import { GearPuzzle } from '../puzzles/GearPuzzle.js';
 import { Machine } from './Machine.js';
+import { CircuitPuzzle } from '../puzzles/CircuitPuzzle.js';
+import { CircuitPanel } from './CircuitPanel.js';
 
 /**
  * Laboratory - builds the whole environment shell and exposes:
@@ -260,6 +262,17 @@ export class Laboratory {
       top: this.machineBox.max.y,
     });
 
+    // Phase 16: electrical circuit panel on the south wall, right of spawn.
+    // Faces north into the room so the player walks up and reads it.
+    this.circuitPuzzle = new CircuitPuzzle();
+    this.circuitPanel = new CircuitPanel({ materials: this.materials, puzzle: this.circuitPuzzle });
+    p.add(g, this.circuitPanel.group, c, { x: 3.5, y: 1.7, z: 5.72, rotY: Math.PI });
+
+    // Wiring memo pinned beside the panel: the clue that makes the
+    // configuration deducible rather than random.
+    this.circuitMemo = this._buildCircuitMemo();
+    p.add(g, this.circuitMemo, c, { x: 1.5, y: 1.65, z: 5.8, rotY: Math.PI, block: false });
+
     p.add(g, p.buildChair(), c, { x: -4.1, z: 0.3, rotY: -Math.PI / 2 });
 
     p.add(g, p.buildCrates(), c, { block: true });
@@ -388,6 +401,30 @@ export class Laboratory {
     this.door.update(dt);
     this.drawer.update(dt);
     this.machine.update(dt);
+    if (this.circuitPanel) this.circuitPanel.update(dt);
     this.lighting.update(dt);
+  }
+
+  /**
+   * Wiring memo pinned next to the circuit panel (Phase 16).
+   *
+   * A small paper sheet with the deduction clue. Returned as a group so
+   * Props.add can place it; Game registers it as a Read interaction.
+   */
+  _buildCircuitMemo() {
+    const g = new THREE.Group();
+    g.name = 'CircuitMemo';
+    const paper = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.5, 0.62),
+      new THREE.MeshStandardMaterial({ color: 0xd8d2bd, roughness: 0.9 })
+    );
+    g.add(paper);
+    const pin = new THREE.Mesh(
+      new THREE.SphereGeometry(0.02, 8, 6),
+      new THREE.MeshStandardMaterial({ color: 0xb02020, roughness: 0.4 })
+    );
+    pin.position.set(0, 0.28, 0.01);
+    g.add(pin);
+    return g;
   }
 }
