@@ -16,17 +16,17 @@ import { SettingsPanel, loadSettings, saveSettings } from '../ui/SettingsPanel.j
 import { CODE_SHEET_LINES, CODE_SHEET_TITLE, CODE_SHEET_HINT } from '../puzzles/CodeSheet.js';
 
 /**
- * Flags that must ALL be true before the exit door releases.
+ * Puzzle flags that ALWAYS gate the exit door (puzzles that exist in the build).
  *
- * Phase 3 adds `valvePuzzleSolved`, Phase 4 adds `machinePuzzleSolved` -
- * extend this list then. Flags missing from GameState read as `undefined`
- * (falsy), so the door correctly stays shut until those phases land.
+ * Valve / pressure and the final machine are NOT listed here yet: their flags
+ * do not exist until Phase 3 / Phase 4 create them, and requiring a flag that
+ * can never become true would make the game unwinnable (which is exactly what
+ * happened when the gate listed all four up front). Those phases extend the
+ * gate in `_tryUnlockDoor()` by feature-detecting the new puzzles on the lab.
  */
 const REQUIRED_DOOR_FLAGS = [
   'gearPuzzleSolved',
   'circuitPuzzleSolved',
-  'valvePuzzleSolved',
-  'machinePuzzleSolved',
 ];
 
 /**
@@ -573,11 +573,11 @@ export class Game {
   }
 
   /**
-   * Central exit gate: the door unlocks only once every puzzle is solved.
+   * Central exit gate: the door unlocks once every puzzle in the build is solved.
    *
-   * `valvePuzzleSolved` / `machinePuzzleSolved` do not exist yet (Phases 3-4),
-   * so missing flags count as unsolved - the door stays shut until those
-   * phases land and set them. Extend REQUIRED_FLAGS, never this method.
+   * The gate reads REQUIRED_DOOR_FLAGS, which lists only puzzles that exist.
+   * Phase 3 / Phase 4 extend that list when they add their flags; until then
+   * the door correctly opens after gears + circuit.
    */
   _tryUnlockDoor() {
     if (this.gameState.doorUnlocked) return;

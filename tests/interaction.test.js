@@ -1138,8 +1138,10 @@ console.log('no double-complete            :', cGameSrc.includes('never complete
 
 
 console.log('\n--- door gate: unlocks only when all puzzles solved ---');
-// Missing future flags read as undefined (falsy) -> door stays shut.
-console.log('gate lists 4 flags : ', cGameSrc.includes('valvePuzzleSolved'))
+// The gate must list ONLY puzzles that exist. Requiring a flag that can never
+// become true (valve/machine, Phases 3-4) made the game unwinnable once.
+console.log('gate requires gear+circuit : ', cGameSrc.includes("'gearPuzzleSolved'") && cGameSrc.includes("'circuitPuzzleSolved'"))
+console.log('gate ignores future flags : ', !cGameSrc.includes("'valvePuzzleSolved'") && !cGameSrc.includes("'machinePuzzleSolved'"))
 console.log('poweron keeps door shut: ', !cGameSrc.includes('Unlocked. Walk through it.'))
 console.log('central gate exists : ', cGameSrc.includes('_tryUnlockDoor()'))
 console.log('circuit calls gate : ', cGameSrc.includes('this._tryUnlockDoor()'))
