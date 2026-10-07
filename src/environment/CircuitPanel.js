@@ -21,6 +21,26 @@ const CHANNEL_HEX = {
   white: 0xf2f5f7,
 };
 
+/**
+ * Lever throw angles (rotation about the pivot's X axis).
+ *
+ * The old targets were +0.5 (OFF) / -0.5 (ON). Because the pivot sat only
+ * 0.15 in front of the plate while the handle is 0.23 long, the negative ON
+ * throw swung the knob ~0.07 m BACKWARD through the face plate - the lever
+ * visibly sank inside the cabinet.
+ *
+ * Now the lever flips DOWN (135 deg: tip below the pivot, angled forward)
+ * to UP (0 deg: upright), sweeping entirely through the space IN FRONT of
+ * the panel. With LEVER_PIVOT_Z the deepest point stays in front of
+ * PLATE_FRONT_Z in both positions.
+ */
+export const LEVER_OFF_ANGLE = Math.PI * 0.75;
+export const LEVER_ON_ANGLE = 0;
+/** Z of the lever pivot in panel-local space. */
+export const LEVER_PIVOT_Z = 0.18;
+/** Front face of the face plate (0.095 + 0.03 / 2). */
+export const PLATE_FRONT_Z = 0.11;
+
 export class CircuitPanel {
   constructor({ materials, puzzle }) {
     this.m = materials;
@@ -62,11 +82,11 @@ export class CircuitPanel {
       const x = -0.72 + i * 0.36;
       const channel = CIRCUIT_CHANNELS[i];
       const hex = CHANNEL_HEX[channel];
-      const base = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.06), this.m.plastic);
-      base.position.set(x, -0.05, 0.12);
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.09), this.m.plastic);
+      base.position.set(x, -0.05, 0.14);
       this.group.add(base);
       const pivot = new THREE.Group();
-      pivot.position.set(x, -0.05, 0.15);
+      pivot.position.set(x, -0.05, LEVER_PIVOT_Z);
       const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.22, 8), this.m.wood);
       handle.position.y = 0.11;
       handle.castShadow = true;
@@ -77,7 +97,7 @@ export class CircuitPanel {
       );
       knob.position.y = 0.23;
       pivot.add(knob);
-      pivot.rotation.x = 0.5;
+      pivot.rotation.x = LEVER_OFF_ANGLE;
       this.group.add(pivot);
       this.levers.push(pivot);
       const lampMat = new THREE.MeshStandardMaterial({ color: 0x2a3138, emissive: hex, emissiveIntensity: 0.05 });
@@ -141,10 +161,14 @@ export class CircuitPanel {
     this.socketMat = new THREE.MeshStandardMaterial({ color: 0x2a3138, emissive: 0x35e065, emissiveIntensity: 0.05 });
     const socket = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.06, 16), this.socketMat);
     socket.rotation.x = Math.PI / 2;
-    socket.position.set(0, -0.05, 0.12);
+    // Top centre. It used to sit at (0, -0.05) - exactly where switch 3's base
+    // and lever live (switches run -0.72 + i*0.36, so i=2 is x=0, y=-0.05) - so
+    // the socket cylinder and the switch housing interpenetrated and their front
+    // faces z-fought.
+    socket.position.set(0, 0.55, 0.12);
     this.group.add(socket);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.015, 8, 20), this.m.metal);
-    ring.position.set(0, -0.05, 0.13);
+    ring.position.set(0, 0.55, 0.13);
     this.group.add(ring);
   }
   flashWarning(dur = 1.0) {
@@ -153,7 +177,7 @@ export class CircuitPanel {
   update(dt) {
     const states = this.puzzle.switches;
     for (let i = 0; i < this.levers.length; i++) {
-      const target = states[i] ? -0.5 : 0.5;
+      const target = states[i] ? LEVER_ON_ANGLE : LEVER_OFF_ANGLE;
       this.levers[i].rotation.x = THREE.MathUtils.damp(this.levers[i].rotation.x, target, 12, dt);
       const lampTarget = states[i] ? 2.4 : 0.05;
       this.lampMats[i].emissiveIntensity = THREE.MathUtils.damp(this.lampMats[i].emissiveIntensity, lampTarget, 10, dt);

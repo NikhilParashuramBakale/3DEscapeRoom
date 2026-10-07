@@ -131,6 +131,8 @@ export const OBJECTIVES = [
   { flag: 'hasKey', text: 'Open the desk drawer and take the key.' },
   { flag: 'gearPuzzleSolved', text: 'Restore power to the machine on the east wall.' },
   { flag: 'circuitPuzzleSolved', text: 'Restore the circuit panel on the south wall.' },
+  { flag: 'valvePuzzleSolved', text: 'Balance the pressure valves on the east wall.' },
+  { flag: 'machinePuzzleSolved', text: 'Start the final machine on the south wall.' },
   { flag: 'doorUnlocked', text: 'Unlock the exit door and escape.' },
   { flag: 'escaped', text: '', doneText: 'Escaped.' },
 ];

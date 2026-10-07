@@ -16,17 +16,17 @@ import { SettingsPanel, loadSettings, saveSettings } from '../ui/SettingsPanel.j
 import { CODE_SHEET_LINES, CODE_SHEET_TITLE, CODE_SHEET_HINT } from '../puzzles/CodeSheet.js';
 
 /**
- * Puzzle flags that ALWAYS gate the exit door (puzzles that exist in the build).
+ * Puzzle flags that gate the exit door - every puzzle in the game.
  *
- * Valve / pressure and the final machine are NOT listed here yet: their flags
- * do not exist until Phase 3 / Phase 4 create them, and requiring a flag that
- * can never become true would make the game unwinnable (which is exactly what
- * happened when the gate listed all four up front). Those phases extend the
- * gate in `_tryUnlockDoor()` by feature-detecting the new puzzles on the lab.
+ * All four now exist (gear, circuit, valve, final machine). `_tryUnlockDoor`
+ * is called by each puzzle's completion handler; the last one to complete
+ * releases the deadbolt. Do not add a flag that GameState cannot set true.
  */
 const REQUIRED_DOOR_FLAGS = [
   'gearPuzzleSolved',
   'circuitPuzzleSolved',
+  'valvePuzzleSolved',
+  'machinePuzzleSolved',
 ];
 
 /**
@@ -392,6 +392,63 @@ export class Game {
     });
     memo.hitbox.scale.set(0.8, 0.9, 0.5);
 
+    // Phase 17: three valve handwheels on the pressure rig (east wall).
+    for (let i = 0; i < lab.valveRig.valveProxies.length; i++) {
+      const proxy = lab.valveRig.valveProxies[i];
+      const valve = this.interactions.register(proxy, {
+        verb: 'Turn',
+        label: 'Valve',
+        distance: 2.6,
+        onInteract: () => this._turnValve(i),
+      });
+      valve.hitbox.scale.set(1.1, 1.1, 1.1);
+    }
+
+    // Pressure placard beside the rig: the deduction clue.
+    const placard = this.interactions.register(lab.pressurePlacard, {
+      verb: 'Read',
+      label: 'Pressure Placard',
+      distance: 2.4,
+      onInteract: () => this._readPressurePlacard(),
+    });
+    placard.hitbox.scale.set(0.9, 1.0, 0.6);
+
+    // Phase 18: three control dials + the activation button on the final machine.
+    for (let i = 0; i < lab.finalMachine.dialProxies.length; i++) {
+      const proxy = lab.finalMachine.dialProxies[i];
+      const dial = this.interactions.register(proxy, {
+        verb: 'Rotate',
+        label: 'Control',
+        distance: 2.6,
+        onInteract: () => this._turnFinalDial(i),
+      });
+      dial.hitbox.scale.set(0.9, 0.9, 0.9);
+    }
+
+    const activate = this.interactions.register(lab.finalMachine.activateProxy, {
+      verb: 'Activate',
+      label: 'Machine',
+      distance: 2.6,
+      onInteract: () => this._activateFinalMachine(),
+    });
+    activate.hitbox.scale.set(1.1, 1.1, 1.1);
+
+    // Station reading plates: the three clues that combine into the
+    // final machine's dial solution. Always readable, one per earlier puzzle.
+    for (const plate of lab.stationPlates) {
+      const io = this.interactions.register(plate.group, {
+        verb: 'Read',
+        label: 'Station Plate',
+        distance: 2.2,
+        onInteract: () => {
+          this.prompt.hide();
+          this.audio.uiClick();
+          this.messages.flash(`Engraved: ${plate.group.userData.reading}`, { tone: 'good', duration: 4000 });
+        },
+      });
+      io.hitbox.scale.set(1.0, 0.9, 0.8);
+    }
+
     // While a document is open the prompt must not linger under the modal.
     this.readingPanel.onClose = () => this.prompt.hide();
     // Stale toasts would otherwise sit on top of the modal.
@@ -567,9 +624,172 @@ export class Game {
 
     this.gameState.set('circuitPuzzleSolved', true);
     this.audio.circuitActivate();
+    // The pressure rig only comes alive now - before this it is dead metal.
+    lab.valveRig.powered = true;
     this.messages.flash('Relays engage. The panel output socket glows green.', { tone: 'good' });
-    this.messages.flash('Somewhere new, a system powers up.');
+    this.messages.flash('A hiss from the east wall: the pressure rig is live.');
     this._tryUnlockDoor();
+  }
+
+  /**
+   * Read the pressure placard: the deduction clue for the valve rig.
+   *
+   * The clue names a direction per valve; the wheels cycle
+   * UP -> RIGHT -> DOWN -> LEFT, so "DOWN" means two turns from start.
+   */
+  _readPressurePlacard() {
+    this.prompt.hide();
+    this.audio.uiClick();
+    this.readingPanel.open({
+      title: 'Pressure Placard - Bay 3',
+      lines: [
+        'Pressure balance chart (post-surge):',
+        '',
+        'LEFT valve   -> DOWN',
+        'CENTER valve -> UP',
+        'RIGHT valve  -> DOWN',
+        '',
+        'Turn each wheel until the handle points where shown.',
+        'Stable pressure lights the green lamp.',
+      ],
+      hint: 'Wheels cycle: UP, RIGHT, DOWN, LEFT.',
+    });
+  }
+
+  /**
+   * Turn one valve a quarter-step (Phase 17).
+   *
+   * Gating order: circuit power first (the rig is dead until then), then
+   * lock once solved. A wrong combination hisses and flashes the warning
+   * dome; the right one stabilises and completes.
+   */
+  _turnValve(index) {
+    const lab = this.laboratory;
+
+    if (this.gameState.valvePuzzleSolved) {
+      this.messages.flash('The pressure holds steady. The valves are locked.', { tone: 'good' });
+      return;
+    }
+    if (!this.gameState.circuitPuzzleSolved) {
+      this.audio.keypadReject();
+      this.messages.flash('Pressure system has no power.', { tone: 'bad' });
+      return;
+    }
+
+    const changed = lab.valvePuzzle.turn(index);
+    if (!changed) return;
+    this.audio.valveTurn();
+
+    if (lab.valvePuzzle.solved) {
+      this._solveValve();
+      return;
+    }
+
+    // Unstable pressure: warning dome, hiss, and how many are already right.
+    this.audio.pressureHiss();
+    lab.valveRig.flashWarning(0.9);
+    const n = lab.valvePuzzle.correctCount;
+    this.messages.flash(
+      n === 0
+        ? 'The gauge shakes. Nothing balanced yet.'
+        : `${n} of 3 valves balanced.`,
+      { tone: 'bad' }
+    );
+  }
+
+  /** Stabilise pressure: lock valves, light pipes/chamber, update state. */
+  _solveValve() {
+    const lab = this.laboratory;
+    if (this.gameState.valvePuzzleSolved) return; // never complete twice
+
+    this.gameState.set('valvePuzzleSolved', true);
+    this.audio.pressureStable();
+    this.messages.flash('Pressure stabilised. The chamber glows green.', { tone: 'good' });
+    this.messages.flash('Pipes light up in sequence toward the machine.');
+    this._tryUnlockDoor();
+  }
+
+  /** True once every prerequisite puzzle for the final machine is done. */
+  _finalMachinePowered() {
+    return (
+      this.gameState.gearPuzzleSolved &&
+      this.gameState.circuitPuzzleSolved &&
+      this.gameState.valvePuzzleSolved
+    );
+  }
+
+  /**
+   * Turn one control dial a quarter-step (Phase 18).
+   *
+   * The dial solution is assembled from the three station plates; this
+   * method never hints at it - it only reports how many dials are right.
+   */
+  _turnFinalDial(index) {
+    const lab = this.laboratory;
+
+    if (this.gameState.machinePuzzleSolved) {
+      this.messages.flash('The machine hums at a steady pitch.', { tone: 'good' });
+      return;
+    }
+    if (!this._finalMachinePowered()) {
+      this.audio.keypadReject();
+      this.messages.flash('Laboratory system is not fully powered.', { tone: 'bad' });
+      return;
+    }
+
+    lab.finalMachine.powered = true;
+    const changed = lab.finalPuzzle.turn(index);
+    if (!changed) return;
+    this.audio.machineClick();
+
+    const n = lab.finalPuzzle.correctCount;
+    this.messages.flash(
+      n === 3 ? 'All three dials settled. The button glows.' : `${n} of 3 dials aligned.`,
+      { tone: n === 3 ? 'good' : 'info' }
+    );
+  }
+
+  /**
+   * Press the activation button: runs the 9-step sequence if the dials are
+   * right, otherwise rejects with feedback.
+   */
+  _activateFinalMachine() {
+    const lab = this.laboratory;
+
+    if (this.gameState.machinePuzzleSolved) {
+      this.messages.flash('LABORATORY SYSTEM ONLINE.', { tone: 'good' });
+      return;
+    }
+    if (!this._finalMachinePowered()) {
+      this.audio.keypadReject();
+      this.messages.flash('Laboratory system is not fully powered.', { tone: 'bad' });
+      return;
+    }
+    if (!lab.finalPuzzle.solved) {
+      this.audio.keypadReject();
+      lab.finalMachine.buttonMat.emissiveIntensity = 1.5;
+      this.messages.flash('The button flashes red. The dials are not set.', { tone: 'bad' });
+      return;
+    }
+
+    // Never complete twice (the button stays interactive after activation).
+    if (this.gameState.machinePuzzleSolved) return;
+    this.gameState.set('machinePuzzleSolved', true);
+
+    // STEP 2-6: mechanical start sound + the staged visual timeline
+    // (indicators -> rotors -> core -> pipes) runs inside FinalMachine.update.
+    this.audio.machineStart();
+    lab.finalMachine.beginActivation();
+
+    // STEP 7: laboratory lighting changes - the exit area brightens.
+    lab.lighting.setExitBoost(1.6);
+
+    // STEP 8: final exit mechanism unlocks via the central gate.
+    this._tryUnlockDoor();
+
+    // STEP 9: success messages.
+    this.messages.flash('LABORATORY SYSTEM ONLINE', { tone: 'good', duration: 3600 });
+    this.messages.flash('EXIT UNLOCKED', { tone: 'good', duration: 3600 });
   }
 
   /**

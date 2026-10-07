@@ -10,6 +10,10 @@ import { GearPuzzle } from '../puzzles/GearPuzzle.js';
 import { Machine } from './Machine.js';
 import { CircuitPuzzle } from '../puzzles/CircuitPuzzle.js';
 import { CircuitPanel } from './CircuitPanel.js';
+import { ValvePuzzle } from '../puzzles/ValvePuzzle.js';
+import { ValveRig } from './ValveRig.js';
+import { FinalMachinePuzzle } from '../puzzles/FinalMachinePuzzle.js';
+import { FinalMachine } from './FinalMachine.js';
 
 /**
  * Laboratory - builds the whole environment shell and exposes:
@@ -273,6 +277,38 @@ export class Laboratory {
     this.circuitMemo = this._buildCircuitMemo();
     p.add(g, this.circuitMemo, c, { x: 1.5, y: 1.65, z: 5.8, rotY: Math.PI, block: false });
 
+    // Phase 17: pressure/valve rig on the east wall, south of the gear
+    // machine (which spans z -2.2..0.2). Inactive until the circuit solves.
+    this.valvePuzzle = new ValvePuzzle();
+    this.valveRig = new ValveRig({ materials: this.materials, puzzle: this.valvePuzzle });
+    // East wall inner face is x = 7.85; the plate is 0.12 deep and centred at
+    // local z = 0, so x = 7.79 puts its back exactly on the wall.
+    p.add(g, this.valveRig.group, c, { x: 7.79, y: 1.3, z: 3.4, rotY: -Math.PI / 2 });
+
+    // Pressure placard beside the rig: the clue for the valve configuration.
+    this.pressurePlacard = this._buildPressurePlacard();
+    p.add(g, this.pressurePlacard, c, { x: 7.8, y: 0.75, z: 5.1, rotY: -Math.PI / 2, block: false });
+
+    // Phase 18: the final machine on the south wall, west of the circuit
+    // panel (which spans roughly x 2.4..4.6). Inert until Game powers it.
+    this.finalPuzzle = new FinalMachinePuzzle();
+    this.finalMachine = new FinalMachine({ materials: this.materials, puzzle: this.finalPuzzle });
+    p.add(g, this.finalMachine.group, c, { x: -2.2, z: 5.45, rotY: Math.PI });
+
+    // Station plates: one reading per earlier puzzle, together they form
+    // the final machine's dial solution (see FinalMachinePuzzle.js).
+    this.stationPlates = [
+      { key: 'REDUCTION', degrees: 90, x: 7.72, y: 2.35, z: -1.0, rotY: -Math.PI / 2 },
+      { key: 'OUTPUT', degrees: 180, x: 5.1, y: 1.65, z: 5.8, rotY: Math.PI },
+      { key: 'FLOW', degrees: 270, x: 7.72, y: 2.5, z: 3.4, rotY: -Math.PI / 2 },
+    ].map((plate) => ({
+      ...plate,
+      group: this._buildStationPlate(plate.key, plate.degrees),
+    }));
+    for (const plate of this.stationPlates) {
+      p.add(g, plate.group, c, { x: plate.x, y: plate.y, z: plate.z, rotY: plate.rotY, block: false });
+    }
+
     p.add(g, p.buildChair(), c, { x: -4.1, z: 0.3, rotY: -Math.PI / 2 });
 
     p.add(g, p.buildCrates(), c, { block: true });
@@ -402,7 +438,83 @@ export class Laboratory {
     this.drawer.update(dt);
     this.machine.update(dt);
     if (this.circuitPanel) this.circuitPanel.update(dt);
+    if (this.valveRig) this.valveRig.update(dt);
+    if (this.finalMachine) this.finalMachine.update(dt);
     this.lighting.update(dt);
+  }
+
+  /**
+   * Station reading plate (Phase 18).
+   *
+   * A small metal plate engraved with one value (e.g. "REDUCTION 90").
+   * The three plates - placed beside the gear machine, the circuit panel and
+   * the valve rig - are the only place the final machine's dial solution is
+   * written down; the machine itself never shows it.
+   */
+  _buildStationPlate(key, degrees) {
+    const g = new THREE.Group();
+    g.name = `StationPlate-${key}`;
+
+    const plate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.24, 0.03),
+      new THREE.MeshStandardMaterial({ color: 0xb8a46a, roughness: 0.55, metalness: 0.4 })
+    );
+    g.add(plate);
+
+    // Engraved-look recess suggesting the stamped label + value lines.
+    const ink = new THREE.MeshStandardMaterial({ color: 0x2a2418, roughness: 0.95 });
+    const label = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.03, 0.008), ink);
+    label.position.set(0, 0.05, 0.019);
+    g.add(label);
+    const value = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.05, 0.008), ink);
+    value.position.set(0, -0.05, 0.019);
+    g.add(value);
+
+    // Corner screws.
+    for (const [x, y] of [[-0.21, 0.09], [0.21, 0.09], [-0.21, -0.09], [0.21, -0.09]]) {
+      const screw = new THREE.Mesh(new THREE.SphereGeometry(0.014, 6, 5), this.materials.metal);
+      screw.position.set(x, y, 0.019);
+      g.add(screw);
+    }
+
+    g.userData.reading = `${key} = ${degrees} deg`;
+    return g;
+  }
+
+  /**
+   * Pressure placard pinned beside the valve rig (Phase 17).
+   *
+   * The clue that makes the valve configuration deducible: it names a
+   * direction for each valve, and the wheels cycle UP/RIGHT/DOWN/LEFT, so
+   * reading it tells the player exactly where to stop each wheel without
+   * the code ever exposing VALVE_SOLUTION.
+   */
+  _buildPressurePlacard() {
+    const g = new THREE.Group();
+    g.name = 'PressurePlacard';
+
+    const board = new THREE.Mesh(
+      new THREE.BoxGeometry(0.42, 0.56, 0.03),
+      new THREE.MeshStandardMaterial({ color: 0xd8d2bd, roughness: 0.9 })
+    );
+    g.add(board);
+
+    // Dark strips suggesting stencilled text lines.
+    const ink = new THREE.MeshStandardMaterial({ color: 0x2a2f34, roughness: 0.95 });
+    for (let i = 0; i < 5; i++) {
+      const line = new THREE.Mesh(new THREE.BoxGeometry(i === 0 ? 0.3 : 0.24, 0.025, 0.005), ink);
+      line.position.set(0, 0.2 - i * 0.08, 0.018);
+      g.add(line);
+    }
+
+    const pin = new THREE.Mesh(
+      new THREE.SphereGeometry(0.02, 8, 6),
+      new THREE.MeshStandardMaterial({ color: 0xb02020, roughness: 0.4 })
+    );
+    pin.position.set(0, 0.25, 0.02);
+    g.add(pin);
+
+    return g;
   }
 
   /**

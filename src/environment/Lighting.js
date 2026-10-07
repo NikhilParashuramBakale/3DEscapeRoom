@@ -234,6 +234,21 @@ export class Lighting {
   }
 
   /**
+   * Extra brightness for the exit area (Phase 18, final machine online).
+   *
+   * Boosts the exit spot above its normal level so the escape route visibly
+   * lights up as the payoff for finishing the last puzzle. Damped in update()
+   * so it fades in rather than snapping.
+   * @param {number} factor multiplier applied to the exit spot's base level
+   */
+  setExitBoost(factor = 1) {
+    this._exitBoost = factor;
+    if (this.exitSpot && this.exitSpot.userData) {
+      this.exitSpot.userData.boostTarget = factor;
+    }
+  }
+
+  /**
    * Per-frame update: smooth state transitions + the flickering tube.
    */
   update(dt) {
@@ -273,10 +288,14 @@ export class Lighting {
       lamp.tubeMat.emissiveIntensity = lamp.baseEmissive * this._level * f;
     }
 
-    // Spots follow the room, but the machine bay also responds to activation.
+    // Spots follow the room, but the machine bay also responds to activation,
+    // and the exit spot can be boosted above normal once the final machine is
+    // online (setExitBoost) - that damped `_exitBoost` is what makes the
+    // escape route visibly brighten as the payoff.
     for (const s of this.spots) {
       let k = this._level;
       if (s.light === this.machineSpot) k = 0.25 + 0.75 * this._active;
+      if (s.light === this.exitSpot) k = Math.max(k, k * (this._exitBoost || 1));
       s.light.intensity = s.baseIntensity * k;
     }
 

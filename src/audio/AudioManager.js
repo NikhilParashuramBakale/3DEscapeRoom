@@ -302,6 +302,48 @@ export class AudioManager {
     this._tone({ freq: 440, type: 'sawtooth', dur: 0.6, gain: 0.1, slideTo: 880, delay: 0.2 });
   }
 
+  /** Valve quarter-turn: a tight metallic ratchet, three quick clicks. */
+  valveTurn() {
+    for (let i = 0; i < 3; i++) {
+      this._noiseBurst({ dur: 0.04, gain: 0.16, freq: 2600, q: 3, delay: i * 0.05 });
+    }
+    this._tone({ freq: 180, type: 'square', dur: 0.1, gain: 0.09, slideTo: 120, delay: 0.12 });
+  }
+
+  /** Wrong configuration: escaping steam. Rate limited so it cannot stack. */
+  pressureHiss() {
+    if (!this.isReady || !this._allow('hiss', 0.7)) return;
+    this._noiseBurst({ dur: 0.5, gain: 0.16, freq: 5200, q: 0.8, sweepTo: 2200, type: 'highpass' });
+  }
+
+  /** Pressure stable: a descending relief chime settling into a low hum. */
+  pressureStable() {
+    this._noiseBurst({ dur: 0.7, gain: 0.12, freq: 3600, q: 1.2, sweepTo: 600 });
+    this._tone({ freq: 523, type: 'sine', dur: 0.3, gain: 0.16 });
+    this._tone({ freq: 392, type: 'sine', dur: 0.5, gain: 0.16, delay: 0.22 });
+    this._tone({ freq: 98, type: 'triangle', dur: 1.2, gain: 0.14, delay: 0.4 });
+  }
+
+  /** Control dial detent: a short, dry mechanical click. */
+  machineClick() {
+    this._noiseBurst({ dur: 0.05, gain: 0.2, freq: 1800, q: 3 });
+    this._tone({ freq: 320, type: 'square', dur: 0.05, gain: 0.1, slideTo: 200 });
+  }
+
+  /**
+   * Final machine startup: the big one. Motor catch, spool-up sweep,
+   * layered low drone, then a resolved chord as the system comes online.
+   */
+  machineStart() {
+    this._noiseBurst({ dur: 0.12, gain: 0.3, freq: 900, q: 2 });          // contactor clunk
+    this._tone({ freq: 55, type: 'sawtooth', dur: 1.6, gain: 0.2, slideTo: 165, delay: 0.1 }); // spool-up
+    this._noiseBurst({ dur: 1.4, gain: 0.12, freq: 180, q: 0.7, sweepTo: 2600, delay: 0.15 });
+    this._tone({ freq: 82, type: 'triangle', dur: 2.2, gain: 0.16, delay: 0.4 }); // drone
+    [261.6, 329.6, 392.0].forEach((f, i) => {                              // resolution
+      this._tone({ freq: f, type: 'sine', dur: 1.4, gain: 0.12, delay: 1.6 + i * 0.14 });
+    });
+  }
+
   /** Footstep. Rate limited so a fast walk cannot stack them into a buzz. */
   footstep() {
     if (!this.isReady || !this._allow('step', 0.22)) return;

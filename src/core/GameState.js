@@ -13,6 +13,8 @@ export class GameState {
     this.gearPuzzleSolved = false;
     this.machineActive = false;
     this.circuitPuzzleSolved = false;
+    this.valvePuzzleSolved = false;
+    this.machinePuzzleSolved = false;
     this.doorUnlocked = false;
     this.escaped = false;
 

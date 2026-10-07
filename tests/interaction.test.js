@@ -1138,11 +1138,61 @@ console.log('no double-complete            :', cGameSrc.includes('never complete
 
 
 console.log('\n--- door gate: unlocks only when all puzzles solved ---');
-// The gate must list ONLY puzzles that exist. Requiring a flag that can never
-// become true (valve/machine, Phases 3-4) made the game unwinnable once.
-console.log('gate requires gear+circuit : ', cGameSrc.includes("'gearPuzzleSolved'") && cGameSrc.includes("'circuitPuzzleSolved'"))
-console.log('gate ignores future flags : ', !cGameSrc.includes("'valvePuzzleSolved'") && !cGameSrc.includes("'machinePuzzleSolved'"))
+// The gate must list every puzzle that exists but no future flag - requiring
+// a flag that can never become true (machine, Phase 4) makes it unwinnable.
+const gateBlock = cGameSrc.match(/const REQUIRED_DOOR_FLAGS = \[([\s\S]*?)\]/);
+console.log('gate requires gear+circuit+valve : ', !!gateBlock &&
+  ['gearPuzzleSolved', 'circuitPuzzleSolved', 'valvePuzzleSolved'].every((f) => gateBlock[1].includes(f)));
+console.log('gate ignores machine (phase 4)   : ', !!gateBlock && !gateBlock[1].includes('machinePuzzleSolved'))
 console.log('poweron keeps door shut: ', !cGameSrc.includes('Unlocked. Walk through it.'))
 console.log('central gate exists : ', cGameSrc.includes('_tryUnlockDoor()'))
 console.log('circuit calls gate : ', cGameSrc.includes('this._tryUnlockDoor()'))
 console.log('locked msg updated : ', cGameSrc.includes('not all online yet'))
+
+console.log('\n--- circuit lever stays in front of the face plate ---');
+// The lever pivot used to sit at z=0.15 with a +/-0.5 rad throw, so the ON
+// position swung the 0.23 m handle ~0.07 m BACKWARD through the face plate.
+// Sweep the whole transition and assert no part of the handle/knob crosses
+// the plate front at any intermediate frame.
+const cpPanel = await import('../src/environment/CircuitPanel.js');
+let leverClear = true;
+for (let t = 0; t <= 1; t += 0.02) {
+  const a = cpPanel.LEVER_OFF_ANGLE + (cpPanel.LEVER_ON_ANGLE - cpPanel.LEVER_OFF_ANGLE) * t;
+  for (const y of [0, 0.11, 0.23]) {
+    if (cpPanel.LEVER_PIVOT_Z + y * Math.sin(a) - 0.035 < cpPanel.PLATE_FRONT_Z) leverClear = false;
+  }
+}
+console.log('sweep never enters plate   :', leverClear);
+console.log('OFF points down, ON is up  :', Math.cos(cpPanel.LEVER_OFF_ANGLE) < 0 && cpPanel.LEVER_ON_ANGLE === 0);
+
+console.log('\n--- phase 17: valve/pressure puzzle logic ---');
+const vMod = await import('../src/puzzles/ValvePuzzle.js');
+const vp = new vMod.ValvePuzzle();
+console.log('starts UP/UP/UP, unsolved      :', JSON.stringify(vp.states) === '[0,0,0]' && !vp.solved);
+console.log('solution is [2,0,2] (D,U,D)    :', JSON.stringify(vMod.VALVE_SOLUTION) === '[2,0,2]');
+console.log('directions cycle UP/R/D/L      :', JSON.stringify(vMod.VALVE_DIRECTIONS) === '["UP","RIGHT","DOWN","LEFT"]');
+console.log('turn advances a quarter-step   :', vp.turn(0) && vp.states[0] === 1);
+console.log('turn wraps 3 -> 0              :', (vp.turn(0), vp.turn(0), vp.turn(0), vp.states[0] === 0));
+console.log('out-of-range turn rejected     :', vp.turn(3) === false && vp.turn(-1) === false);
+// Placard solution: left DOWN (x2), center stays UP, right DOWN (x2).
+const vp2 = new vMod.ValvePuzzle();
+vp2.turn(0); vp2.turn(0);
+vp2.turn(2); vp2.turn(2);
+console.log('placard config solves          :', vp2.solved === true);
+console.log('locks after solve              :', vp2.turn(0) === false && vp2.solved === true);
+console.log('correctCount tracks balance    :', new vMod.ValvePuzzle().correctCount === 1); // center starts UP = solution
+console.log('direction() reports state      :', new vMod.ValvePuzzle().direction(0) === 'UP' && vp2.direction(0) === 'DOWN');
+
+console.log('\n--- phase 17: valve rig wiring ---');
+const vLabSrc = await import('fs').then((fs) => fs.readFileSync('src/environment/Laboratory.js', 'utf8'));
+console.log('lab builds rig + placard       :', vLabSrc.includes('new ValveRig(') && vLabSrc.includes('_buildPressurePlacard'));
+console.log('lab updates rig per frame      :', vLabSrc.includes('this.valveRig.update(dt)'));
+console.log('GameState has valve flag       :', cGsSrc.includes('valvePuzzleSolved'));
+console.log('circuit powers the rig         :', cGameSrc.includes('lab.valveRig.powered = true'));
+console.log('unpowered message exact        :', cGameSrc.includes('Pressure system has no power.'));
+console.log('valve solver sets flag once    :', cGameSrc.includes("set('valvePuzzleSolved', true)") && cGameSrc.includes('never complete twice'));
+console.log('valve solve calls door gate    :', /_solveValve\(\)[\s\S]{0,400}_tryUnlockDoor/.test(cGameSrc));
+console.log('no duplicate puzzle system     :', (cGameSrc.match(/new ValvePuzzle/g) || []).length === 0);
+const vAudioSrc = await import('fs').then((fs) => fs.readFileSync('src/audio/AudioManager.js', 'utf8'));
+console.log('audio: valve/hiss/stable hooks :', ['valveTurn', 'pressureHiss', 'pressureStable'].every((m) => vAudioSrc.includes(m + '()')));
+
