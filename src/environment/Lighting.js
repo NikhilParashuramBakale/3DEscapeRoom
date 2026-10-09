@@ -47,6 +47,11 @@ export class Lighting {
     // choice instead of an unavoidable pulsing.
     this._flickerEnabled = false;
 
+    // Exit-spot boost multiplier (final machine online). Damped from
+    // _exitBoostTarget in update() so the escape route brightens smoothly.
+    this._exitBoost = 1;
+    this._exitBoostTarget = 1;
+
     this._build();
   }
 
@@ -242,10 +247,7 @@ export class Lighting {
    * @param {number} factor multiplier applied to the exit spot's base level
    */
   setExitBoost(factor = 1) {
-    this._exitBoost = factor;
-    if (this.exitSpot && this.exitSpot.userData) {
-      this.exitSpot.userData.boostTarget = factor;
-    }
+    this._exitBoostTarget = factor;
   }
 
   /**
@@ -255,6 +257,8 @@ export class Lighting {
     // Smoothly approach the target room level.
     this._level = THREE.MathUtils.damp(this._level, this._targetLevel, 1.6, dt);
     this._active = THREE.MathUtils.damp(this._active, this._targetActive, 1.6, dt);
+    // Exit-spot boost eases in after the final machine comes online.
+    this._exitBoost = THREE.MathUtils.damp(this._exitBoost, this._exitBoostTarget, 1.2, dt);
 
     // Ambient + general shadow light scale with the room level, but stay
     // within a range that always keeps geometry readable.
@@ -295,7 +299,7 @@ export class Lighting {
     for (const s of this.spots) {
       let k = this._level;
       if (s.light === this.machineSpot) k = 0.25 + 0.75 * this._active;
-      if (s.light === this.exitSpot) k = Math.max(k, k * (this._exitBoost || 1));
+      if (s.light === this.exitSpot) k *= this._exitBoost;
       s.light.intensity = s.baseIntensity * k;
     }
 

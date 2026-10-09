@@ -750,8 +750,12 @@ export class Game {
   }
 
   /**
-   * Press the activation button: runs the 9-step sequence if the dials are
-   * right, otherwise rejects with feedback.
+   * Press the activation button: physical feedback first, then the 9-step
+   * sequence if the dials are right.
+   *
+   * A rejected press gives visibly (plunger dips and springs back, master
+   * lamp strobes red) instead of only showing a toast - a button that
+   * visibly refuses to go down reads as intentional in both states.
    */
   _activateFinalMachine() {
     const lab = this.laboratory;
@@ -760,19 +764,28 @@ export class Game {
       this.messages.flash('LABORATORY SYSTEM ONLINE.', { tone: 'good' });
       return;
     }
-    if (!this._finalMachinePowered()) {
+
+    const aligned = this._finalMachinePowered() && lab.finalPuzzle.solved;
+
+    if (this._finalMachinePowered() && !lab.finalPuzzle.solved) {
+      // Powered but dials wrong: the classic rejected press.
+      lab.finalMachine.pressButton(false);
       this.audio.keypadReject();
-      this.messages.flash('Laboratory system is not fully powered.', { tone: 'bad' });
-      return;
-    }
-    if (!lab.finalPuzzle.solved) {
-      this.audio.keypadReject();
-      lab.finalMachine.buttonMat.emissiveIntensity = 1.5;
       this.messages.flash('The button flashes red. The dials are not set.', { tone: 'bad' });
       return;
     }
 
-    // Never complete twice (the button stays interactive after activation).
+    if (!this._finalMachinePowered()) {
+      // Not powered: same physical resist, different message.
+      lab.finalMachine.pressButton(false);
+      this.audio.keypadReject();
+      this.messages.flash('Laboratory system is not fully powered.', { tone: 'bad' });
+      return;
+    }
+
+    // Aligned: the plunger depresses and latches (never complete twice -
+    // pressButton() returns false if the sequence already started).
+    if (!lab.finalMachine.pressButton(aligned)) return;
     if (this.gameState.machinePuzzleSolved) return;
     this.gameState.set('machinePuzzleSolved', true);
 
@@ -793,11 +806,10 @@ export class Game {
   }
 
   /**
-   * Central exit gate: the door unlocks once every puzzle in the build is solved.
+   * Central exit gate: the door unlocks once every puzzle is solved.
    *
-   * The gate reads REQUIRED_DOOR_FLAGS, which lists only puzzles that exist.
-   * Phase 3 / Phase 4 extend that list when they add their flags; until then
-   * the door correctly opens after gears + circuit.
+   * The gate reads REQUIRED_DOOR_FLAGS (all four puzzles). Each completion
+   * handler calls this; whichever finishes last releases the deadbolt.
    */
   _tryUnlockDoor() {
     if (this.gameState.doorUnlocked) return;

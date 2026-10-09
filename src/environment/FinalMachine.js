@@ -40,6 +40,15 @@ export class FinalMachine {
     this._actT = 0;      // seconds since activation began
     this._rotorSpeed = 0; // rad/s, eased up during activation
 
+    // Button plunger state (z in panel-local space; 0.53 = resting).
+    // A rejected press gives slightly and springs back while strobing the
+    // warning lamp; an aligned press depresses and latches.
+    this._buttonTargetZ = 0.53;
+    this._buttonGiveTimer = 0;   // seconds of "give" remaining after a reject
+    this._buttonLatched = false; // true once pressed with the dials set
+    this._warnFlash = 0;         // seconds of red warning strobe remaining
+    this._warnLampRed = false;   // whether the master lamp is strobing red
+
     /** Invisible registration proxies (3 dials + the activate button). */
     this.dialProxies = [];
     this.activateProxy = null;
@@ -126,10 +135,16 @@ export class FinalMachine {
       dial.add(knob);
 
       const pointer = new THREE.Mesh(
-        new THREE.BoxGeometry(0.03, 0.11, 0.05),
-        new THREE.MeshStandardMaterial({ color: 0xd8d2bd, roughness: 0.6 })
-      );
-      pointer.position.y = 0.06;
+      // Proud of the knob face (face is at z = 0.035; this spans 0.03..0.07,
+      // so it embeds 5 mm into the knob — no side gap — and stands 35 mm out)
+      // and long enough to overhang the rim (radius 0.12), so a dial turn is
+      // actually visible. The original box spanned z 0.005..0.045 and stopped
+      // 5 mm SHORT of the rim: from the front it was effectively invisible,
+      // which made pressing a dial look like nothing happened.
+      new THREE.BoxGeometry(0.03, 0.16, 0.04),
+      new THREE.MeshStandardMaterial({ color: 0xd8d2bd, roughness: 0.6 })
+    );
+    pointer.position.set(0, 0.07, 0.05);
       dial.add(pointer);
 
       this.group.add(dial);
@@ -229,6 +244,7 @@ export class FinalMachine {
     button.rotation.x = Math.PI / 2;
     button.position.set(1.0, 0.62, 0.53);
     this.group.add(button);
+    this.button = button;
 
     this.activateProxy = new THREE.Group();
     this.activateProxy.name = 'ActivateProxy';
@@ -250,6 +266,33 @@ export class FinalMachine {
     this._actT = 0;
   }
 
+  /**
+   * Press the activation button with physical feedback (Phase 18 polish).
+   *
+   * Rejected press (dials not set): the plunger gives ~1.5 cm and springs
+   * straight back while the master lamp strobes red - the press VISIBLY
+   * fails instead of only showing a toast. Accepted press: the plunger
+   * depresses and stays latched, then the activation timeline runs.
+   *
+   * @param {boolean} aligned whether the dials are on the solution
+   * @returns {boolean} true if the press was accepted
+   */
+  pressButton(aligned) {
+    if (this.activated) return false; // already running
+
+    if (aligned) {
+      this._buttonLatched = true;
+      this._buttonTargetZ = 0.49; // depressed and stays
+      return true;
+    }
+
+    // Resist: dip a little, spring back, strobe the warning lamp.
+    this._buttonTargetZ = 0.515;
+    this._buttonGiveTimer = 0.22;
+    this._warnFlash = 0.9;
+    return false;
+  }
+
   /** Per-frame: dial angles, activation timeline, eased lighting states. */
   update(dt) {
     // Dials: discrete target angle per state, damped so turns animate.
@@ -269,6 +312,29 @@ export class FinalMachine {
         this.indicatorMats[i].emissiveIntensity, target, 6, dt
       );
     }
+
+    // Rejected button press: the master lamp strobes red while _warnFlash
+    // runs, overriding its normal state. A hard on/off blink (not a damp)
+    // so it reads as an alarm, not a fade.
+    if (this._warnFlash > 0) {
+      this._warnFlash = Math.max(0, this._warnFlash - dt);
+      const master = this.indicatorMats[3];
+      master.emissive.setHex(0xff2222);
+      master.emissiveIntensity = Math.sin(performance.now() * 0.04) > 0 ? 3.0 : 0.1;
+      this._warnLampRed = true;
+    } else if (this._warnLampRed) {
+      // One-shot restore of the master lamp's green once the strobe ends.
+      this._warnLampRed = false;
+      this.indicatorMats[3].emissive.setHex(0x35e065);
+    }
+
+    // Button plunger: damped travel toward its target. The "give" timer
+    // springs a rejected press back out to rest after a beat.
+    if (this._buttonGiveTimer > 0) {
+      this._buttonGiveTimer = Math.max(0, this._buttonGiveTimer - dt);
+      if (this._buttonGiveTimer === 0 && !this._buttonLatched) this._buttonTargetZ = 0.53;
+    }
+    this.button.position.z = THREE.MathUtils.damp(this.button.position.z, this._buttonTargetZ, 14, dt);
 
     // STEP 4: rotors spin up from 0.8 s.
     const speedTarget = this._actT > 0.8 ? 5.0 : 0;

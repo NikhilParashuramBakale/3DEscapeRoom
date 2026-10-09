@@ -1138,12 +1138,14 @@ console.log('no double-complete            :', cGameSrc.includes('never complete
 
 
 console.log('\n--- door gate: unlocks only when all puzzles solved ---');
-// The gate must list every puzzle that exists but no future flag - requiring
-// a flag that can never become true (machine, Phase 4) makes it unwinnable.
+// The gate must list every puzzle in the game - all four now exist. A gate
+// that omits a real puzzle opens the exit early; one naming an impossible
+// flag makes the game unwinnable (both mistakes have happened already).
 const gateBlock = cGameSrc.match(/const REQUIRED_DOOR_FLAGS = \[([\s\S]*?)\]/);
-console.log('gate requires gear+circuit+valve : ', !!gateBlock &&
-  ['gearPuzzleSolved', 'circuitPuzzleSolved', 'valvePuzzleSolved'].every((f) => gateBlock[1].includes(f)));
-console.log('gate ignores machine (phase 4)   : ', !!gateBlock && !gateBlock[1].includes('machinePuzzleSolved'))
+console.log('gate requires all four puzzles  : ', !!gateBlock &&
+  ['gearPuzzleSolved', 'circuitPuzzleSolved', 'valvePuzzleSolved', 'machinePuzzleSolved'].every((f) => gateBlock[1].includes(f)));
+console.log('gate has no extra flags         : ', !!gateBlock &&
+  (gateBlock[1].match(/'/g) || []).length === 8)
 console.log('poweron keeps door shut: ', !cGameSrc.includes('Unlocked. Walk through it.'))
 console.log('central gate exists : ', cGameSrc.includes('_tryUnlockDoor()'))
 console.log('circuit calls gate : ', cGameSrc.includes('this._tryUnlockDoor()'))
@@ -1195,4 +1197,65 @@ console.log('valve solve calls door gate    :', /_solveValve\(\)[\s\S]{0,400}_tr
 console.log('no duplicate puzzle system     :', (cGameSrc.match(/new ValvePuzzle/g) || []).length === 0);
 const vAudioSrc = await import('fs').then((fs) => fs.readFileSync('src/audio/AudioManager.js', 'utf8'));
 console.log('audio: valve/hiss/stable hooks :', ['valveTurn', 'pressureHiss', 'pressureStable'].every((m) => vAudioSrc.includes(m + '()')));
+
+console.log('\n--- phase 18: final machine puzzle logic ---');
+const fmMod = await import('../src/puzzles/FinalMachinePuzzle.js');
+const fm = new fmMod.FinalMachinePuzzle();
+console.log('starts 0/0/0, unsolved         :', JSON.stringify(fm.states) === '[0,0,0]' && !fm.solved);
+console.log('solution is [1,2,3] (90/180/270):', JSON.stringify(fmMod.KNOB_SOLUTION) === '[1,2,3]');
+console.log('turn advances a quarter-step   :', fm.turn(0) && fm.states[0] === 1);
+console.log('turn wraps 3 -> 0              :', (fm.turn(0), fm.turn(0), fm.turn(0), fm.states[0] === 0));
+console.log('out-of-range turn rejected     :', fm.turn(3) === false && fm.turn(-1) === false);
+console.log('degrees() reports state*90     :', (fm.states[0] = 3, fm.degrees(0) === 270));
+// Station-plate solution: A 90 (x1), B 180 (x2), C 270 (x3).
+const fm2 = new fmMod.FinalMachinePuzzle();
+fm2.turn(0);
+fm2.turn(1); fm2.turn(1);
+fm2.turn(2); fm2.turn(2); fm2.turn(2);
+console.log('station plates solve           :', fm2.solved === true);
+console.log('locks after solve              :', fm2.turn(0) === false && fm2.solved === true);
+console.log('correctCount tracks alignment  :', new fmMod.FinalMachinePuzzle().correctCount === 0);
+
+console.log('\n--- phase 18: final machine wiring ---');
+console.log('lab builds final machine       :', vLabSrc.includes('new FinalMachine(') && vLabSrc.includes('new FinalMachinePuzzle('));
+console.log('lab builds 3 station plates    :', vLabSrc.includes('_buildStationPlate') && vLabSrc.includes('stationPlates'));
+console.log('lab updates machine per frame  :', vLabSrc.includes('this.finalMachine.update(dt)'));
+console.log('GameState has machine flag     :', cGsSrc.includes('machinePuzzleSolved'));
+console.log('machine gated on 3 prerequisites:', /_finalMachinePowered\(\)\s*\{[\s\S]*?gearPuzzleSolved[\s\S]*?circuitPuzzleSolved[\s\S]*?valvePuzzleSolved/.test(cGameSrc));
+console.log('early attempt message exact    :', (cGameSrc.match(/Laboratory system is not fully powered\./g) || []).length >= 2);
+console.log('solver sets flag once          :', cGameSrc.includes("set('machinePuzzleSolved', true)") && /pressButton\(aligned\)\) return;[\s\S]{0,200}machinePuzzleSolved', true/.test(cGameSrc));
+console.log('activation runs 9-step sequence:', ['beginActivation()', 'machineStart()', 'setExitBoost', '_tryUnlockDoor()', 'LABORATORY SYSTEM ONLINE', 'EXIT UNLOCKED'].every((s) => cGameSrc.includes(s)));
+console.log('no duplicate machine system    :', (cGameSrc.match(/new FinalMachine/g) || []).length === 0);
+console.log('audio: click + startup hooks   :', ['machineClick', 'machineStart'].every((m) => vAudioSrc.includes(m + '()')));
+const vLightSrc = await import('fs').then((fs) => fs.readFileSync('src/environment/Lighting.js', 'utf8'));
+console.log('lighting: exit boost damped    :', vLightSrc.includes('setExitBoost') && vLightSrc.includes('_exitBoostTarget'));
+const vMsgSrc = await import('fs').then((fs) => fs.readFileSync('src/ui/GameMessages.js', 'utf8'));
+const objectiveBlock = vMsgSrc.match(/export const OBJECTIVES = \[([\s\S]*?)\];/);
+console.log('objective lists machine step   :', !!objectiveBlock && objectiveBlock[1].includes('machinePuzzleSolved'));
+console.log('objective order matches flow   :', !!objectiveBlock &&
+  ['gearPuzzleSolved', 'circuitPuzzleSolved', 'valvePuzzleSolved', 'machinePuzzleSolved', 'doorUnlocked']
+    .every((f, i, arr) => objectiveBlock[1].indexOf(f) > (i === 0 ? -1 : objectiveBlock[1].indexOf(arr[i - 1]))));
+
+console.log('\n--- phase 18: button feel + dial visibility ---');
+// The dial pointer used to sit at z=0.025 inside a knob whose face is at
+// z=0.035: pressing a dial looked like NOTHING happened. The pointer must
+// now stand proud of the face and overhang the rim (radius 0.12).
+const fmSrc = await import('fs').then((fs) => fs.readFileSync('src/environment/FinalMachine.js', 'utf8'));
+console.log('pointer proud of knob face     :', /pointer\.position\.set\(0, 0\.07, 0\.05\)/.test(fmSrc) && 0.05 + 0.02 > 0.035 && 0.05 - 0.02 < 0.035);
+console.log('pointer overhangs rim          :', /BoxGeometry\(0\.03, 0\.16, 0\.04\)/.test(fmSrc) && 0.07 + 0.08 > 0.12);
+
+// Rejected press: visibly resists (gives then springs back) and strobes the
+// warning lamp - not just a toast.
+const fmTest = lab.finalMachine;
+console.log('reject returns false           :', fmTest.activated ? '(skipped: activated)' : fmTest.pressButton(false) === false);
+console.log('reject arms give + strobe      :', fmTest._buttonGiveTimer > 0 && fmTest._warnFlash > 0 && !fmTest._buttonLatched);
+// Accepted press: depresses and latches.
+const fmAccept = fmTest.activated ? true : fmTest.pressButton(true);
+console.log('accept latches plunger         :', fmTest.activated ? '(skipped: activated)' : fmAccept === true && fmTest._buttonLatched && fmTest._buttonTargetZ < 0.53);
+// Double press after activation must be inert.
+console.log('press inert once running       :', (fmTest.beginActivation(), fmTest.pressButton(true) === false));
+// Game routes every press through pressButton (no direct emissive hacks).
+console.log('game uses pressButton          :', (cGameSrc.match(/pressButton\(/g) || []).length >= 3);
+console.log('no emissive shortcut left      :', !cGameSrc.includes('buttonMat.emissiveIntensity = 1.5'));
+
 
