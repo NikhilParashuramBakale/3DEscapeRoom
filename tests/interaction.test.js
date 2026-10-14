@@ -586,7 +586,8 @@ const gameSrc = await import('node:fs').then((fs) =>
   fs.readFileSync(new URL('../src/core/Game.js', import.meta.url), 'utf8'));
 console.log('counts gear turns           :', /this\.gearTurns\+\+/.test(gameSrc));
 console.log('freezes the clock on escape :', /runSeconds\s*=\s*Math\.max\(0,\s*this\._elapsed - this\.runStartedAt\)/.test(gameSrc));
-console.log('derives objectives from state:', /OBJECTIVES\.filter\(\(o\) => this\.gameState\[o\.flag\]\)/.test(gameSrc));
+// Still derives the tally from GameState - now via the bypass-aware helper.
+console.log('derives objectives from state:', /countObjectivesDone\(this\.gameState\)/.test(gameSrc));
 // The old 9-second escape toast must be gone, or it would sit on top of the
 // completion card for the first half of the fade-in.
 console.log('no leftover escape toast    :', !/You step into the dark corridor/.test(gameSrc));
@@ -1110,21 +1111,39 @@ lit.update(0.016);
 console.log('re-disable restores steady  :', lit._flickerValue === 1);
 
 
-console.log('\n--- phase 16: circuit puzzle logic ---');
+console.log('\n--- phase 16: circuit puzzle logic (chained switches) ---');
 const { CircuitPuzzle: CP, CIRCUIT_SOLUTION_MASK: CSM } = await import('../src/puzzles/CircuitPuzzle.js');
 const cp = new CP();
 console.log('starts all off, unsolved      :', cp.switches.every((s) => !s) && !cp.solved);
 console.log('solution mask is 0b10110 (22) :', CSM === 22 && cp.solution === 22);
 console.log('out-of-range toggle rejected  :', cp.toggle(5) === false && cp.toggle(-1) === false);
-// Memo solution: green(2), yellow(3), white(5) ON; red(1), blue(4) OFF.
-cp.toggle(1); cp.toggle(2); cp.toggle(4);
-console.log('clue config solves            :', cp.solved === true);
+// Chaining: throwing green (1) also trips yellow (2).
+const cpChain = new CP();
+cpChain.toggle(1);
+console.log('switch trips its neighbour    :', cpChain.switches[1] === true && cpChain.switches[2] === true);
+// Naive "set every channel the note names" (green, yellow, white) is WRONG
+// under the chain - this is the interdependence the puzzle is built on.
+const cpNaive = new CP();
+cpNaive.toggle(1); cpNaive.toggle(2); cpNaive.toggle(4);
+console.log('naive clue set does NOT solve :', cpNaive.solved === false);
+// Hand-solved: press green (1) + white (4) only. green also trips yellow,
+// landing exactly on 0b10110.
+cp.toggle(1); cp.toggle(4);
+console.log('chained solution solves       :', cp.solved === true && cp.mask === 22);
 console.log('locks after solve             :', cp.toggle(0) === false && cp.solved === true);
+// Brute force: exactly one press-subset reaches the target (invertible matrix).
+let solutions = 0;
+for (let subset = 0; subset < 32; subset++) {
+  const cpx = new CP();
+  for (let i = 0; i < 5; i++) if (subset & (1 << i)) cpx.toggle(i);
+  if (cpx.solved) solutions++;
+}
+console.log('exactly one solution exists   :', solutions === 1);
 const cp2 = new CP();
-cp2.toggle(0); // red ON = damaged channel
+cp2.toggle(0); // red ON = damaged channel (also trips green)
 console.log('red channel alone not solved  :', cp2.solved === false);
-console.log('correctCount tracks matches   :', cp2.correctCount === 1);
-console.log('mask reflects states          :', cp2.mask === 1);
+console.log('mask reflects chained states  :', cp2.mask === 3); // red+green on
+console.log('correctCount still tracks     :', cp2.correctCount === 2); // i1 wants on, i3 wants off
 
 console.log('\n--- phase 16: circuit panel wiring ---');
 const cPanelSrc = await import('fs').then((fs) => fs.readFileSync('src/environment/CircuitPanel.js', 'utf8'));
@@ -1193,7 +1212,7 @@ console.log('GameState has valve flag       :', cGsSrc.includes('valvePuzzleSolv
 console.log('circuit powers the rig         :', cGameSrc.includes('lab.valveRig.powered = true'));
 console.log('unpowered message exact        :', cGameSrc.includes('Pressure system has no power.'));
 console.log('valve solver sets flag once    :', cGameSrc.includes("set('valvePuzzleSolved', true)") && cGameSrc.includes('never complete twice'));
-console.log('valve solve calls door gate    :', /_solveValve\(\)[\s\S]{0,400}_tryUnlockDoor/.test(cGameSrc));
+console.log('valve solve calls door gate    :', /_solveValve\(\)[\s\S]{0,700}_tryUnlockDoor/.test(cGameSrc));
 console.log('no duplicate puzzle system     :', (cGameSrc.match(/new ValvePuzzle/g) || []).length === 0);
 const vAudioSrc = await import('fs').then((fs) => fs.readFileSync('src/audio/AudioManager.js', 'utf8'));
 console.log('audio: valve/hiss/stable hooks :', ['valveTurn', 'pressureHiss', 'pressureStable'].every((m) => vAudioSrc.includes(m + '()')));
@@ -1258,4 +1277,110 @@ console.log('press inert once running       :', (fmTest.beginActivation(), fmTes
 console.log('game uses pressButton          :', (cGameSrc.match(/pressButton\(/g) || []).length >= 3);
 console.log('no emissive shortcut left      :', !cGameSrc.includes('buttonMat.emissiveIntensity = 1.5'));
 
+console.log('\n--- phase 19: machine -> exit door connection ---');
+// Spec: before machine completion the door says it is still locked; the
+// message must keep the legacy hint substring the Phase-9 test asserts.
+console.log('locked door message (pre-machine):', cGameSrc.includes('Exit mechanism is still locked.'));
+console.log('legacy locked hint kept        :', cGameSrc.includes('not all online yet'));
+// Spec: after machine completion the door animates open on its own.
+console.log('machine auto-opens the door    :', /_tryUnlockDoor\(\);[\s\S]{0,400}lab\.door\.open\(\)/.test(cGameSrc));
+console.log('auto-open is guarded           :', cGameSrc.includes('!lab.door.isOpen && this.gameState.doorUnlocked'));
+// Spec: unlock sound, lighting change, exit light, success messages.
+console.log('gate plays unlock sound        :', /_tryUnlockDoor\(\)\s*\{[\s\S]{0,400}doorUnlock/.test(cGameSrc));
+console.log('exit spot + sign both boost    :', cGameSrc.includes('setExitBoost(1.6)') && cGameSrc.includes('setExitSignBoost(3.0)'));
+console.log('lab implements sign boost      :', vLabSrc.includes('setExitSignBoost(intensity = 3.0)') &&
+  /damp\(\s*this\.exitSign\.material\.emissiveIntensity, this\._exitSignTarget/.test(vLabSrc));
+console.log('online + unlocked messages     :', cGameSrc.includes('LABORATORY SYSTEM ONLINE') && cGameSrc.includes('EXIT UNLOCKED'));
+// Spec: final success message on the completion screen.
+const fmEndSrc = await import('fs').then((fs) => fs.readFileSync('src/ui/EndScreen.js', 'utf8'));
+console.log('end screen says ESCAPE SUCCESSFUL:', fmEndSrc.includes('ESCAPE SUCCESSFUL'));
+// Auto-open must not fight the player: Door.open() works only when unlocked
+// via toggle(), and manual E still functions after auto-open.
+console.log('door toggle still manual-safe  :', cGameSrc.includes('lab.door.toggle();'));
+
+console.log('\n--- phase 20: staged lighting + ambience progression ---');
+// Spec: light communicates progression - some lights after circuit, more
+// after pressure, FULL power only at the final machine. setActive() used to
+// fire on the first puzzle, making every later stage visually meaningless.
+const methodBody = (src, name) => (src.match(new RegExp(name + '\\(\\) \\{([\\s\\S]*?)\\n  \\}')) || [])[1] || '';
+const bodyPowerOn = methodBody(cGameSrc, '_powerOn');
+const bodyCircuit = methodBody(cGameSrc, '_solveCircuit');
+const bodyValve = methodBody(cGameSrc, '_solveValve');
+const bodyMachine = methodBody(cGameSrc, '_activateFinalMachine');
+console.log('stage 1: gears partial power  :', bodyPowerOn.includes('setLevels(0.6, 0.4)') && !bodyPowerOn.includes('setActive()'));
+console.log('stage 2: circuit brighter     :', bodyCircuit.includes('setLevels(0.78, 0.6)'));
+console.log('stage 3: valve near-full      :', bodyValve.includes('setLevels(0.9, 0.8)'));
+console.log('stage 4: machine full power   :', bodyMachine.includes('lab.lighting.setActive()'));
+console.log('stages strictly increase      :', 0.6 < 0.78 && 0.78 < 0.9 && 0.4 < 0.6 && 0.6 < 0.8);
+const vLightSrc2 = await import('fs').then((fs) => fs.readFileSync('src/environment/Lighting.js', 'utf8'));
+console.log('Lighting.setLevels exists     :', vLightSrc2.includes('setLevels(level, active)') &&
+  vLightSrc2.includes('THREE.MathUtils.clamp(level, 0, 1)'));
+// Behavioural: setLevels actually moves the damped level, and stages climb.
+lab.lighting.setLevels(0.6, 0.4);
+for (let i = 0; i < 400; i++) lab.lighting.update(1 / 60);
+const stage1 = lab.lighting._level;
+lab.lighting.setLevels(0.9, 0.8);
+for (let i = 0; i < 400; i++) lab.lighting.update(1 / 60);
+const stage3 = lab.lighting._level;
+console.log('setLevels drives _level       :', Math.abs(stage1 - 0.6) < 0.05, Math.abs(stage3 - 0.9) < 0.05);
+console.log('later stage is brighter       :', stage3 > stage1 + 0.2);
+lab.lighting.setActive(); // leave full so later expectations hold
+// Ambience grows with progression; safe before unlock.
+console.log('ambience ramp exists          :', vAudioSrc.includes('setAmbienceLevel(level = 0.5)'));
+console.log('ramped at circuit/valve/machine:', [bodyCircuit, bodyValve, bodyMachine].every((b) => b.includes('setAmbienceLevel(')));
+let ambRampThrew = false;
+try { audio.setAmbienceLevel(0.6); } catch (e) { ambRampThrew = true; }
+console.log('ramp safe before unlock       :', ambRampThrew === false);
+// Spec sound checklist (all four puzzle families).
+const hookGroups = {
+  circuit: ['switchToggle', 'circuitBuzz', 'circuitActivate'],
+  valves: ['valveTurn', 'pressureHiss', 'pressureStable'],
+  machine: ['machineClick', 'machineStart'],
+  exit: ['doorUnlock', 'doorOpen', 'escape'],
+};
+console.log('all spec sound hooks exist    :', Object.values(hookGroups).every((g) => g.every((m) => vAudioSrc.includes(m + '()'))));
+
+
+
+
+
+console.log('\n--- phase 21: keypad bypass + hint removal ---');
+// Bug: guessing the pedestal code WITHOUT reading the note left
+// hasReadCodeSheet=false forever, so the objective tracker froze on
+// "Find the lab note" while the drawer stood open. currentObjective()
+// treats an entry as done if any LATER flag is set.
+const { currentObjective: currentObj, countObjectivesDone } = await import('../src/ui/GameMessages.js');
+const bypass = new GameState();
+bypass.set('codeSolved', true);          // guessed the code...
+bypass.set('hasKey', true);              // ...took the key; note NEVER read
+// Note entry is bypassed (later flags set); so is codeSolved and hasKey,
+// so the tracker lands on the NEXT incomplete step: the gears.
+console.log('bypass skips note step     :', currentObj(bypass) === 'Restore power to the machine on the east wall.');
+console.log('bypass counts note as done :', countObjectivesDone(bypass) === 3);
+// The narrower case: code solved, drawer open, key still inside. The
+// tracker must point at the key, NOT the never-read note.
+const bypass2 = new GameState();
+bypass2.set('codeSolved', true);
+console.log('drawer open -> key objective:', currentObj(bypass2) === 'Open the desk drawer and take the key.');
+// Normal order still works: before any progress, the note is the objective.
+const freshState = new GameState();
+console.log('fresh game starts on note  :', currentObj(freshState) === 'Find the lab note on the desk.');
+// Reading the note afterwards is still allowed and recorded.
+freshState.set('hasReadCodeSheet', true);
+console.log('reading note still works   :', currentObj(freshState) === 'Work out the code and use the pedestal keypad.');
+// All-complete returns the win text, and the count is total.
+for (const o of OBJECTIVES) freshState.set(o.flag, true);
+console.log('all done -> win text       :', currentObj(freshState) === 'Escaped.');
+console.log('all done -> full count     :', countObjectivesDone(freshState) === OBJECTIVES.length);
+// The old freeze bug must not be possible: codeSolved without the note
+// must NOT point at the note.
+console.log('freeze bug is gone         :', currentObj(bypass) !== 'Find the lab note on the desk.');
+// Spec: solution-spelling hints removed from circuit memo + pressure placard.
+console.log('circuit memo has no hint   :', !/_readCircuitMemo[\s\S]{0,600}hint:/.test(cGameSrc));
+console.log('placard has no hint        :', !/_readPressurePlacard[\s\S]{0,600}hint:/.test(cGameSrc));
+// The clue itself must remain (removing the hint must not gut the puzzle).
+console.log('circuit clue body intact   :', cGameSrc.includes('The RED channel is burnt out.'));
+console.log('placard clue body intact   :', cGameSrc.includes('LEFT valve   -> DOWN'));
+// Game uses the bypass-aware counter for the completion screen.
+console.log('end screen uses new count  :', cGameSrc.includes('countObjectivesDone(this.gameState)'));
 

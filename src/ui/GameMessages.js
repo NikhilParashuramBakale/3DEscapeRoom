@@ -93,11 +93,16 @@ export class GameMessages {
     }
   }
 
-  /** Recompute the objective line from the progression flags. */
+  /**
+   * Recompute the objective line from the progression flags.
+   *
+   * Uses currentObjective(), which treats an entry as done if its own flag OR
+   * any LATER flag is set. Without that, bypassing an entry (guessing the
+   * keypad code without ever reading the note) froze the tracker on the
+   * bypassed step while the drawer sat open.
+   */
   _refreshObjective() {
-    const current = OBJECTIVES.find((o) => !this.state[o.flag]);
-    // When everything is done, OBJECTIVES' final entry reads as the win state.
-    const text = current ? current.text : OBJECTIVES[OBJECTIVES.length - 1].doneText;
+    const text = currentObjective(this.state);
     if (this._objectiveTextEl.textContent !== text) {
       this._objectiveTextEl.textContent = text;
       this.objectiveEl.classList.remove('pulse');
@@ -117,6 +122,36 @@ const MESSAGE_FADE_MS = 300;
 
 /** How many toasts may be stacked before the oldest is pushed out. */
 const MAX_VISIBLE = 3;
+
+/**
+ * The player's current objective text, derived from GameState.
+ *
+ * An entry counts as DONE if its own flag is set OR any LATER flag is set.
+ * The plain "first false flag" rule froze the tracker when a player bypassed
+ * an entry - e.g. guessed the pedestal code without ever reading the note:
+ * codeSolved went true but hasReadCodeSheet stayed false, so the tracker kept
+ * showing "Find the lab note" while the drawer stood open. Skipping entries
+ * that later progress has overtaken keeps the tracker honest; reading the
+ * note afterwards is still allowed and still recorded.
+ */
+export function currentObjective(state) {
+  const current = OBJECTIVES.find(
+    (o, i) => !state[o.flag] && !OBJECTIVES.slice(i + 1).some((later) => state[later.flag])
+  );
+  // When everything is done, OBJECTIVES' final entry reads as the win state.
+  return current ? current.text : OBJECTIVES[OBJECTIVES.length - 1].doneText;
+}
+
+/**
+ * Count objectives as complete for the same reason as currentObjective():
+ * a bypassed entry (flag never set, but a later flag is) still counts, or the
+ * completion screen would report 8/9 after a fully played game.
+ */
+export function countObjectivesDone(state) {
+  return OBJECTIVES.filter(
+    (o, i) => state[o.flag] || OBJECTIVES.slice(i + 1).some((later) => state[later.flag])
+  ).length;
+}
 
 /**
  * The objective chain, in order. The first entry whose flag is still false is

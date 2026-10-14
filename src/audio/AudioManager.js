@@ -431,6 +431,23 @@ export class AudioManager {
     this._ambience = null;
   }
 
+  /**
+   * Ramp the ambience drone to a new level (Phase 20 progression polish).
+   *
+   * The room drone grows as the puzzles come online, mirroring the staged
+   * lighting. No-ops safely if ambience never started (autoplay policy) or
+   * the context is not unlocked yet - same contract as every other hook.
+   * @param {number} level 0..1 target loudness
+   */
+  setAmbienceLevel(level = 0.5) {
+    if (!this.isReady || !this._ambience || !this.ctx) return;
+    const t0 = this.ctx.currentTime;
+    const bus = this._ambience.bus;
+    bus.gain.cancelScheduledValues(t0);
+    bus.gain.setValueAtTime(Math.max(0.0001, bus.gain.value), t0);
+    bus.gain.exponentialRampToValueAtTime(Math.max(0.0001, level), t0 + 1.5);
+  }
+
   get ambiencePlaying() {
     return !!this._ambience;
   }

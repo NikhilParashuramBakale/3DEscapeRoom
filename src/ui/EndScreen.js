@@ -26,7 +26,7 @@ export class EndScreen {
     this.el.classList.add('hidden');
     this.el.innerHTML = `
       <div class="end-card" role="dialog" aria-modal="true" aria-label="You escaped">
-        <h1 class="end-title">ESCAPED</h1>
+        <h1 class="end-title">ESCAPE SUCCESSFUL</h1>
         <p class="end-flavor">
           The corridor swallows the light behind you. Whatever the machine was
           building, it is still building it without you.

@@ -211,14 +211,15 @@ export class ValveRig {
       this.wheels[i].rotation.z = THREE.MathUtils.damp(this.wheels[i].rotation.z, target, 8, dt);
     }
 
-    // Gauge: dead at zero when unpowered, sweeps (with a wobble) toward
-    // correctCount when powered but unstable, pins full and steady when solved.
-    let needleTarget = 2.4; // zero pressure
+    // Power meter: dead at zero when unpowered, UNSTABLE (mid-scale wobble)
+    // while unsolved, pins full and steady when solved. Deliberately does NOT
+    // track correctCount - a needle that rises per right switch turns the
+    // puzzle into hill-climbing where the clue is never needed.
+    let needleTarget = 2.4; // zero
     if (this.puzzle.solved) {
       needleTarget = -0.7; // full, stable
     } else if (this.powered) {
-      const base = 2.4 - (this.puzzle.correctCount / 3) * 2.2;
-      needleTarget = base + Math.sin(performance.now() * 0.02) * 0.18; // unstable sweep
+      needleTarget = 1.6 + Math.sin(performance.now() * 0.02) * 0.55; // unstable sweep
     }
     this.needlePivot.rotation.z = THREE.MathUtils.damp(this.needlePivot.rotation.z, needleTarget, 5, dt);
 

@@ -10,7 +10,7 @@ import { ReadingPanel } from '../ui/ReadingPanel.js';
 import { GameMessages } from '../ui/GameMessages.js';
 import { KeypadPanel } from '../ui/KeypadPanel.js';
 import { EndScreen } from '../ui/EndScreen.js';
-import { OBJECTIVES } from '../ui/GameMessages.js';
+import { OBJECTIVES, countObjectivesDone } from '../ui/GameMessages.js';
 import { AudioManager } from '../audio/AudioManager.js';
 import { SettingsPanel, loadSettings, saveSettings } from '../ui/SettingsPanel.js';
 import { CODE_SHEET_LINES, CODE_SHEET_TITLE, CODE_SHEET_HINT } from '../puzzles/CodeSheet.js';
@@ -287,7 +287,12 @@ export class Game {
       onInteract: () => {
         if (lab.door.isLocked) {
           this.audio.keypadReject();
-          this.messages.flash('Deadbolted. The laboratory systems are not all online yet.', { tone: 'bad' });
+          // Spec: before machine completion this exact line. It also keeps the
+          // older "not all online yet" hint for the general locked state.
+          this.messages.flash(
+            'Exit mechanism is still locked. The lab systems are not all online yet.',
+            { tone: 'bad' }
+          );
         } else {
           lab.door.toggle();
           // The door can be swung either way, so each direction gets its own
@@ -572,9 +577,12 @@ export class Game {
         'Three systems need power: GREEN, YELLOW and WHITE.',
         'BLUE is a spare - keep it OFF.',
         '',
+        'Mind the old bank wiring: each switch is daisy-chained to',
+        'the one BESIDE it - throwing one also throws its neighbour.',
         'Set the good channels, then check the meter.',
       ],
-      hint: 'Red OFF. Green, Yellow, White ON. Blue OFF.',
+      // No hint line: the note IS the clue. A hint spelling out the exact
+      // switch states would turn the deduction into transcription.
     });
   }
 
@@ -607,14 +615,11 @@ export class Game {
       return;
     }
 
-    // All five thrown but wrong: unmistakable fault feedback.
-    if (lab.circuitPuzzle.correctCount <= 2) {
-      this.audio.circuitBuzz();
-      lab.circuitPanel.flashWarning(1.0);
-      this.messages.flash('The warning lamp flares. Wrong combination.', { tone: 'bad' });
-    } else {
-      this.messages.flash(`${lab.circuitPuzzle.correctCount} of 5 channels live.`);
-    }
+    // Chained wiring: any throw that doesn't land on the target is a fault.
+    // Uniform feedback - no "n of 5 live" hill-climbing hints.
+    this.audio.circuitBuzz();
+    lab.circuitPanel.flashWarning(1.0);
+    this.messages.flash('The warning lamp flares. Wrong combination.', { tone: 'bad' });
   }
 
   /** Latch the circuit: lock the board, light the room, update state. */
@@ -626,6 +631,9 @@ export class Game {
     this.audio.circuitActivate();
     // The pressure rig only comes alive now - before this it is dead metal.
     lab.valveRig.powered = true;
+    // Stage 2: more of the room comes up.
+    lab.lighting.setLevels(0.78, 0.6);
+    this.audio.setAmbienceLevel(0.6);
     this.messages.flash('Relays engage. The panel output socket glows green.', { tone: 'good' });
     this.messages.flash('A hiss from the east wall: the pressure rig is live.');
     this._tryUnlockDoor();
@@ -652,7 +660,7 @@ export class Game {
         'Turn each wheel until the handle points where shown.',
         'Stable pressure lights the green lamp.',
       ],
-      hint: 'Wheels cycle: UP, RIGHT, DOWN, LEFT.',
+      // No hint line: the placard IS the clue (see _readPressurePlacard docs).
     });
   }
 
@@ -685,16 +693,11 @@ export class Game {
       return;
     }
 
-    // Unstable pressure: warning dome, hiss, and how many are already right.
+    // Unstable pressure: warning dome, hiss. Uniform feedback - the count
+    // hint used to reduce this to hill-climbing without reading the placard.
     this.audio.pressureHiss();
     lab.valveRig.flashWarning(0.9);
-    const n = lab.valvePuzzle.correctCount;
-    this.messages.flash(
-      n === 0
-        ? 'The gauge shakes. Nothing balanced yet.'
-        : `${n} of 3 valves balanced.`,
-      { tone: 'bad' }
-    );
+    this.messages.flash('Pressure unstable. The gauge shakes.', { tone: 'bad' });
   }
 
   /** Stabilise pressure: lock valves, light pipes/chamber, update state. */
@@ -704,6 +707,9 @@ export class Game {
 
     this.gameState.set('valvePuzzleSolved', true);
     this.audio.pressureStable();
+    // Stage 3: machinery power up, room nearly full.
+    lab.lighting.setLevels(0.9, 0.8);
+    this.audio.setAmbienceLevel(0.75);
     this.messages.flash('Pressure stabilised. The chamber glows green.', { tone: 'good' });
     this.messages.flash('Pipes light up in sequence toward the machine.');
     this._tryUnlockDoor();
@@ -742,10 +748,12 @@ export class Game {
     if (!changed) return;
     this.audio.machineClick();
 
-    const n = lab.finalPuzzle.correctCount;
+    // No "n of 3 aligned" hint - the station plates are the only guide.
     this.messages.flash(
-      n === 3 ? 'All three dials settled. The button glows.' : `${n} of 3 dials aligned.`,
-      { tone: n === 3 ? 'good' : 'info' }
+      lab.finalPuzzle.solved
+        ? 'All three dials settled. The button glows.'
+        : 'The dial clicks into place.',
+      { tone: lab.finalPuzzle.solved ? 'good' : 'info' }
     );
   }
 
@@ -768,10 +776,14 @@ export class Game {
     const aligned = this._finalMachinePowered() && lab.finalPuzzle.solved;
 
     if (this._finalMachinePowered() && !lab.finalPuzzle.solved) {
-      // Powered but dials wrong: the classic rejected press.
+      // Powered but dials wrong: the classic rejected press, plus a
+      // consequence - the dials KICK BACK to zero. Blind enumeration of
+      // 64 combos then costs 6 turns to re-enter each time, so the station
+      // plates are genuinely worth reading.
+      lab.finalPuzzle.reset();
       lab.finalMachine.pressButton(false);
       this.audio.keypadReject();
-      this.messages.flash('The button flashes red. The dials are not set.', { tone: 'bad' });
+      this.messages.flash('The button flashes red. The dials kick back to zero.', { tone: 'bad' });
       return;
     }
 
@@ -794,11 +806,28 @@ export class Game {
     this.audio.machineStart();
     lab.finalMachine.beginActivation();
 
-    // STEP 7: laboratory lighting changes - the exit area brightens.
+    // STEP 7: laboratory lighting changes to FULL power (stage 4 of the
+    // progression) - main lights activate, plus the exit spot and EXIT sign
+    // ramp up as the payoff. All damped, so they fade in behind the startup.
+    lab.lighting.setActive();
     lab.lighting.setExitBoost(1.6);
+    lab.setExitSignBoost(3.0);
+    this.audio.setAmbienceLevel(0.9);
 
-    // STEP 8: final exit mechanism unlocks via the central gate.
+    // STEP 8: final exit mechanism unlocks via the central gate, then the
+    // door swings itself open as the payoff (spec: "animate door"). The
+    // delay lets the machine's spool-up start first; the guard keeps it
+    // idempotent if the player manually opens the door in the meantime.
     this._tryUnlockDoor();
+    if (!lab.door.isLocked) {
+      setTimeout(() => {
+        if (!lab.door.isOpen && this.gameState.doorUnlocked) {
+          lab.door.open();
+          this.audio.doorOpen();
+          this.messages.flash('The exit door swings open. Cold air.', { tone: 'good' });
+        }
+      }, 1400);
+    }
 
     // STEP 9: success messages.
     this.messages.flash('LABORATORY SYSTEM ONLINE', { tone: 'good', duration: 3600 });
@@ -864,10 +893,16 @@ export class Game {
     this.gameState.set('gearPuzzleSolved', true);
     this.gameState.set('machineActive', true);
 
-    lab.lighting.setActive();
+    // Stage 1 of the lighting progression (spec: light communicates progress).
+    // Full power is reserved for the FINAL machine; the gear solve only
+    // brings the machine bay and part of the room up from dormant.
+    lab.lighting.setLevels(0.6, 0.4);
+    // The circuit panel's meter only becomes live once the gear machine runs
+    // (the switches were already gated on this flag in _toggleCircuitSwitch).
+    lab.circuitPanel.powered = true;
 
     this.audio.powerOn();
-    this.messages.flash('The machine hums to life. Lights return.', { tone: 'good' });
+    this.messages.flash('The machine hums to life. Lights stutter on.', { tone: 'good' });
     this.messages.flash('The exit is still locked. More systems need power.');
     this._tryUnlockDoor();
   }
@@ -894,7 +929,7 @@ export class Game {
     this.endScreen.show({
       seconds: this.runSeconds,
       gearTurns: this.gearTurns,
-      objectivesDone: OBJECTIVES.filter((o) => this.gameState[o.flag]).length,
+      objectivesDone: countObjectivesDone(this.gameState),
       objectivesTotal: OBJECTIVES.length,
     });
   }

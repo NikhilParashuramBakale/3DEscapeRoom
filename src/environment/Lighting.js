@@ -239,6 +239,23 @@ export class Lighting {
   }
 
   /**
+   * Intermediate lighting stage (Phase 20, progression polish).
+   *
+   * The spec wants light to COMMUNICATE progression: dark/inactive at the
+   * start, some lights after the circuit, more after pressure, full power
+   * (setActive) only when the final machine comes online. setActive() used
+   * to fire on the very first puzzle, which made every later puzzle add
+   * nothing visually. Both targets damp in update(), so stages cross-fade.
+   *
+   * @param {number} level room brightness 0..1
+   * @param {number} active machinery/spot power 0..1
+   */
+  setLevels(level, active) {
+    this._targetLevel = THREE.MathUtils.clamp(level, 0, 1);
+    this._targetActive = THREE.MathUtils.clamp(active, 0, 1);
+  }
+
+  /**
    * Extra brightness for the exit area (Phase 18, final machine online).
    *
    * Boosts the exit spot above its normal level so the escape route visibly

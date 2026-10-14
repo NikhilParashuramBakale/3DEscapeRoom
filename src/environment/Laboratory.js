@@ -57,6 +57,10 @@ export class Laboratory {
     this._buildFurniture();
     this._buildExit();
 
+    // Exit sign brightness target (damped in update()). The final machine's
+    // activation boosts it as part of the escape payoff - see setExitSignBoost.
+    this._exitSignTarget = 1.2;
+
     // Lighting states are configured inside Lighting; just start dim.
     this.lighting.setDormant();
   }
@@ -440,7 +444,18 @@ export class Laboratory {
     if (this.circuitPanel) this.circuitPanel.update(dt);
     if (this.valveRig) this.valveRig.update(dt);
     if (this.finalMachine) this.finalMachine.update(dt);
+    // EXIT sign eases toward its target brightness (final machine boosts it).
+    if (this.exitSign) {
+      this.exitSign.material.emissiveIntensity = THREE.MathUtils.damp(
+        this.exitSign.material.emissiveIntensity, this._exitSignTarget, 1.2, dt
+      );
+    }
     this.lighting.update(dt);
+  }
+
+  /** Brighten the EXIT sign (called when the final machine comes online). */
+  setExitSignBoost(intensity = 3.0) {
+    this._exitSignTarget = intensity;
   }
 
   /**

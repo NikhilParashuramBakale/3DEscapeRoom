@@ -52,6 +52,8 @@ export class CircuitPanel {
     this.levers = [];
     this.lampMats = [];
     this.switchProxies = [];
+    /** True once Game powers it (gear machine running) - wakes the meter. */
+    this.powered = false;
     this._warningFlash = 0;
 
     this._buildCabinet();
@@ -182,9 +184,17 @@ export class CircuitPanel {
       const lampTarget = states[i] ? 2.4 : 0.05;
       this.lampMats[i].emissiveIntensity = THREE.MathUtils.damp(this.lampMats[i].emissiveIntensity, lampTarget, 10, dt);
     }
-    const frac = this.puzzle.solved ? 1 : this.puzzle.correctCount / 5;
-    const needleTarget = THREE.MathUtils.lerp(0.7, -0.7, frac);
-    this.needlePivot.rotation.z = THREE.MathUtils.damp(this.needlePivot.rotation.z, needleTarget, 6, dt);
+    // Power meter: dead at zero when unpowered, UNSTABLE (mid-scale wobble)
+    // while unsolved, full and steady when solved. It does not track
+    // correctCount - per-switch progress feedback would let players
+    // hill-climb without ever reading the wiring note.
+    let meterTarget = 0.7; // zero (rest position)
+    if (this.puzzle.solved) {
+      meterTarget = -0.7; // full
+    } else if (this.powered) {
+      meterTarget = Math.sin(performance.now() * 0.02) * 0.45; // unstable sweep
+    }
+    this.needlePivot.rotation.z = THREE.MathUtils.damp(this.needlePivot.rotation.z, meterTarget, 6, dt);
     if (this._warningFlash > 0) this._warningFlash = Math.max(0, this._warningFlash - dt);
     const warnTarget = this.puzzle.solved ? 0.05 : this._warningFlash > 0 ? 3.0 : 0.6;
     this.warningMat.emissiveIntensity = THREE.MathUtils.damp(this.warningMat.emissiveIntensity, warnTarget, 8, dt);
