@@ -1,18 +1,19 @@
 /**
  * CircuitPuzzle - pure logic for the electrical panel (Phase 16, hardened
- * in Phase 22).
+ * in Phase 22, de-chained in Phase 24 by user request).
  *
- * Five channels, each ON or OFF. The target is still the note's
- * configuration (mask 0b10110: green, yellow, white ON), but the switches
- * are CHAINED: throwing switch i also trips switch i+1 (Lights-Out style).
- * That makes the puzzle interdependent - naively setting every channel the
- * note names lands on the WRONG state, and the player must reason about
- * which presses combine to the target.
+ * Five channels, each ON or OFF, each throw moving ONLY its own switch.
+ * (The Lights-Out style chain that tripped the NEIGHBOURING switch when
+ * you pressed one lever is gone: pressing one lever used to move two
+ * levers at once, and players read it as a bug.)
  *
- * Wiring matrix is lower-triangular with 1s on the diagonal (press i flips
- * i, and i+1 when it exists), so it is invertible over GF(2):
- *   - every target state is reachable, and
- *   - exactly one press-subset reaches it (verified by brute force in tests).
+ * The target is mask 0b10110 - green, yellow and white ON; red (damaged)
+ * and blue (spare) OFF. Guidance comes from the instruments: the panel
+ * toasts "n of 5 channels aligned" after every throw, the bottom bar fills
+ * toward the green notch, and the needle tracks the same fraction.
+ *
+ * Exactly one switch configuration reaches the target (identity matrix);
+ * verified by brute force in tests.
  *
  * Pure: no Three.js, no DOM. CircuitPanel reads from here for visuals.
  */
@@ -32,14 +33,9 @@ export class CircuitPuzzle {
     this.solved = false;
   }
 
-  /** Flip one switch directly (no chaining). Used by the wiring rule. */
-  _flip(index) {
-    this.switches[index] = !this.switches[index];
-  }
-
   /**
-   * Throw a switch. The chained neighbour flips with it (see class docs).
-   * No-ops (returns false) when solved or out of range.
+   * Throw a switch. Exactly one channel flips - no neighbour coupling
+   * (see class docs). No-ops (returns false) when solved or out of range.
    * @param {number} index 0..4
    * @returns {boolean} true if the state changed
    */
@@ -47,10 +43,7 @@ export class CircuitPuzzle {
     if (this.solved) return false;
     if (!Number.isInteger(index) || index < 0 || index >= this.switches.length) return false;
 
-    this._flip(index);
-    // Chain rule: every switch also trips the one to its right.
-    // The last switch has no right-hand neighbour.
-    if (index + 1 < this.switches.length) this._flip(index + 1);
+    this.switches[index] = !this.switches[index];
 
     this.solved = this._checkSolved();
     return true;

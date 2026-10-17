@@ -388,14 +388,9 @@ export class Game {
       sw.hitbox.scale.set(0.7, 1.6, 0.7);
     }
 
-    // Wiring memo pinned beside the panel: the deduction clue.
-    const memo = this.interactions.register(lab.circuitMemo, {
-      verb: 'Read',
-      label: 'Wiring Memo',
-      distance: 2.4,
-      onInteract: () => this._readCircuitMemo(),
-    });
-    memo.hitbox.scale.set(0.8, 0.9, 0.5);
+    // No wiring memo (user revision): the panel toasts "n of 5 channels
+    // aligned" and fills its proximity bar, so a note would only repeat
+    // what the instruments already say.
 
     // Phase 17: three valve handwheels on the pressure rig (east wall).
     for (let i = 0; i < lab.valveRig.valveProxies.length; i++) {
@@ -409,14 +404,8 @@ export class Game {
       valve.hitbox.scale.set(1.1, 1.1, 1.1);
     }
 
-    // Pressure placard beside the rig: the deduction clue.
-    const placard = this.interactions.register(lab.pressurePlacard, {
-      verb: 'Read',
-      label: 'Pressure Placard',
-      distance: 2.4,
-      onInteract: () => this._readPressurePlacard(),
-    });
-    placard.hitbox.scale.set(0.9, 1.0, 0.6);
+    // No pressure placard (user revision): each turn toasts how many of
+    // the three valves are aligned, which is the deduction surface now.
 
     // Phase 18: three control dials + the activation button on the final machine.
     for (let i = 0; i < lab.finalMachine.dialProxies.length; i++) {
@@ -453,6 +442,35 @@ export class Game {
       });
       io.hitbox.scale.set(1.0, 0.9, 0.8);
     }
+
+    // Orientation chart (user revision): examine-only. Its painted bars
+    // already sit at each dial's working angle, so the hint is literally
+    // "copy the paint"; the text just names the left/centre/right mapping.
+    this.interactions.register(lab.orientationChart, {
+      verb: 'Examine',
+      label: 'Calibration Chart',
+      distance: 2.2,
+      onInteract: () => {
+        this.prompt.hide();
+        this.audio.uiClick();
+        this.readingPanel.open({
+          title: 'Calibration Chart',
+          lines: [
+            'Three pale bars, hand-painted, each frozen at the angle',
+            'its dial has to run at.',
+            '',
+            'Left bar   -> left dial',
+            'Centre bar -> centre dial',
+            'Right bar  -> right dial',
+            '',
+            'Set every dial the way the paint shows, then press the',
+            'big button.',
+          ],
+          // The chart itself IS the hint - no numeric degrees given, the
+          // player copies orientations by eye (the requested design).
+        });
+      },
+    });
 
     // While a document is open the prompt must not linger under the modal.
     this.readingPanel.onClose = () => this.prompt.hide();
@@ -564,28 +582,6 @@ export class Game {
     this.messages.flash('A small brass key.', { tone: 'good' });
   }
 
-  /** Read the wiring memo: the deduction clue for the circuit panel. */
-  _readCircuitMemo() {
-    this.prompt.hide();
-    this.audio.uiClick();
-    this.readingPanel.open({
-      title: 'Wiring Memo - Bay 3',
-      lines: [
-        'Rewiring after the surge. Read before touching the panel.',
-        '',
-        'The RED channel is burnt out. Leave it DISCONNECTED.',
-        'Three systems need power: GREEN, YELLOW and WHITE.',
-        'BLUE is a spare - keep it OFF.',
-        '',
-        'Mind the old bank wiring: each switch is daisy-chained to',
-        'the one BESIDE it - throwing one also throws its neighbour.',
-        'Set the good channels, then check the meter.',
-      ],
-      // No hint line: the note IS the clue. A hint spelling out the exact
-      // switch states would turn the deduction into transcription.
-    });
-  }
-
   /**
    * Flip a circuit switch (Phase 16).
    *
@@ -615,11 +611,14 @@ export class Game {
       return;
     }
 
-    // Chained wiring: any throw that doesn't land on the target is a fault.
-    // Uniform feedback - no "n of 5 live" hill-climbing hints.
+    // A throw that doesn't land on the target faults the bank. The toast
+    // names HOW MANY channels match (the panel's needle and proximity bar
+    // show the same), so the player steers by deduction. Each lever moves
+    // only its own switch.
     this.audio.circuitBuzz();
     lab.circuitPanel.flashWarning(1.0);
-    this.messages.flash('The warning lamp flares. Wrong combination.', { tone: 'bad' });
+    const aligned = lab.circuitPuzzle.correctCount;
+    this.messages.flash(`The warning lamp flares: ${aligned} of 5 channels aligned.`, { tone: 'bad' });
   }
 
   /** Latch the circuit: lock the board, light the room, update state. */
@@ -637,31 +636,6 @@ export class Game {
     this.messages.flash('Relays engage. The panel output socket glows green.', { tone: 'good' });
     this.messages.flash('A hiss from the east wall: the pressure rig is live.');
     this._tryUnlockDoor();
-  }
-
-  /**
-   * Read the pressure placard: the deduction clue for the valve rig.
-   *
-   * The clue names a direction per valve; the wheels cycle
-   * UP -> RIGHT -> DOWN -> LEFT, so "DOWN" means two turns from start.
-   */
-  _readPressurePlacard() {
-    this.prompt.hide();
-    this.audio.uiClick();
-    this.readingPanel.open({
-      title: 'Pressure Placard - Bay 3',
-      lines: [
-        'Pressure balance chart (post-surge):',
-        '',
-        'LEFT valve   -> DOWN',
-        'CENTER valve -> UP',
-        'RIGHT valve  -> DOWN',
-        '',
-        'Turn each wheel until the handle points where shown.',
-        'Stable pressure lights the green lamp.',
-      ],
-      // No hint line: the placard IS the clue (see _readPressurePlacard docs).
-    });
   }
 
   /**
@@ -693,11 +667,13 @@ export class Game {
       return;
     }
 
-    // Unstable pressure: warning dome, hiss. Uniform feedback - the count
-    // hint used to reduce this to hill-climbing without reading the placard.
+    // Unstable pressure: warning dome, hiss. The toast names HOW MANY
+    // valves are already on their solution, so the player can steer the
+    // remaining wheels by deduction.
     this.audio.pressureHiss();
     lab.valveRig.flashWarning(0.9);
-    this.messages.flash('Pressure unstable. The gauge shakes.', { tone: 'bad' });
+    const aligned = lab.valvePuzzle.correctCount;
+    this.messages.flash(`Pressure unstable: ${aligned} of 3 valves aligned.`, { tone: 'bad' });
   }
 
   /** Stabilise pressure: lock valves, light pipes/chamber, update state. */
@@ -748,7 +724,8 @@ export class Game {
     if (!changed) return;
     this.audio.machineClick();
 
-    // No "n of 3 aligned" hint - the station plates are the only guide.
+    // No "n of 3 aligned" hint - the station plates and the painted
+    // orientation chart are the guides.
     this.messages.flash(
       lab.finalPuzzle.solved
         ? 'All three dials settled. The button glows.'

@@ -7,10 +7,12 @@
  *
  *   A <- REDUCTION = 90 deg   (plate by the gear machine, east wall)
  *   B <- OUTPUT   = 180 deg  (plate by the circuit panel, south wall)
- *   C <- FLOW     = 270 deg  (plate above the pressure placard, east wall)
+ *   C <- FLOW     = 270 deg  (plate by the pressure rig, east wall)
  *
- * so the player must visit all three earlier puzzles' stations and combine
- * the readings - the machine itself never displays the answer.
+ * so the player can visit all three earlier puzzles' stations and combine
+ * the readings. As a gentler alternative (Phase 24, user request), the
+ * painted orientation chart beside the machine shows the same solution
+ * visually - three bars frozen at the working angles, copied by eye.
  *
  * Pure: no Three.js, no DOM (mirrors GearPuzzle/CircuitPuzzle/ValvePuzzle).
  */

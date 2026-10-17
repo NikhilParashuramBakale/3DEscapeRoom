@@ -55,12 +55,15 @@ export class CircuitPanel {
     /** True once Game powers it (gear machine running) - wakes the meter. */
     this.powered = false;
     this._warningFlash = 0;
+    /** Damped 0..1 display value for the proximity bar (target = 1). */
+    this._progressShown = 0;
 
     this._buildCabinet();
     this._buildSwitches();
     this._buildMeter();
     this._buildWarning();
     this._buildSocket();
+    this._buildProgressBar();
   }
 
   _buildCabinet() {
@@ -125,22 +128,24 @@ export class CircuitPanel {
       this.group.add(proxy);
       this.switchProxies.push(proxy);
     }
-    const bus = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.05, 0.05), this.m.metal);
-    bus.position.set(0, -0.53, 0.1);
-    this.group.add(bus);
+    // The old plain bus bar at y = -0.53 is now the proximity bar track
+    // (see _buildProgressBar); the channel wires above still feed into it.
   }
   _buildMeter() {
-    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.34, 0.08), this.m.plastic);
-    housing.position.set(-0.62, 0.3, 0.12);
+    // Top-left, ABOVE the indicator-lamp row (lamps live at y = 0.3). The
+    // old y = 0.3 placement put the housing straight over lamp 1 (x =
+    // -0.72), hiding that channel's indicator completely.
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.08), this.m.plastic);
+    housing.position.set(-0.62, 0.52, 0.12);
     this.group.add(housing);
     const face = new THREE.Mesh(
       new THREE.PlaneGeometry(0.42, 0.26),
       new THREE.MeshStandardMaterial({ color: 0xd8d2bd, roughness: 0.8 })
     );
-    face.position.set(-0.62, 0.3, 0.165);
+    face.position.set(-0.62, 0.52, 0.165);
     this.group.add(face);
     this.needlePivot = new THREE.Group();
-    this.needlePivot.position.set(-0.62, 0.2, 0.17);
+    this.needlePivot.position.set(-0.62, 0.42, 0.17);
     const needle = new THREE.Mesh(
       new THREE.BoxGeometry(0.012, 0.2, 0.005),
       new THREE.MeshStandardMaterial({ color: 0xb02020 })
@@ -152,11 +157,13 @@ export class CircuitPanel {
   }
   _buildWarning() {
     this.warningMat = new THREE.MeshStandardMaterial({ color: 0x3a1414, emissive: 0xff2222, emissiveIntensity: 0.15 });
+    // Top-right, ABOVE the lamp row - the old y = 0.3 sat on top of the
+    // switch-4/5 lamps and hid them behind the dome.
     const dome = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 10, 0, Math.PI * 2, 0, Math.PI / 2), this.warningMat);
-    dome.position.set(0.62, 0.3, 0.12);
+    dome.position.set(0.62, 0.52, 0.12);
     this.group.add(dome);
     const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.085, 0.04, 12), this.m.darkMetal);
-    collar.position.set(0.62, 0.3, 0.12);
+    collar.position.set(0.62, 0.52, 0.12);
     this.group.add(collar);
   }
   _buildSocket() {
@@ -173,6 +180,39 @@ export class CircuitPanel {
     ring.position.set(0, 0.55, 0.13);
     this.group.add(ring);
   }
+  /**
+   * Proximity bar along the bottom edge - the panel's old bus bar, reused.
+   *
+   * Fills from the LEFT as more channels match the target combination
+   * (Game also toasts "n of 5 channels aligned"); it reaches the green
+   * target notch at the right end exactly when the puzzle solves. The
+   * channel wires run down into it, so it reads as the bank's return line.
+   */
+  _buildProgressBar() {
+    const track = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.08, 0.02), this.m.plastic);
+    track.position.set(0, -0.53, 0.105);
+    this.group.add(track);
+    const groove = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.05, 0.02), this.m.darkMetal);
+    groove.position.set(0, -0.53, 0.112);
+    this.group.add(groove);
+    // Fill is anchored at the LEFT end; scaling x slides it toward the notch.
+    this.progressMat = new THREE.MeshStandardMaterial({
+      color: 0x14181c, emissive: 0xffb020, emissiveIntensity: 1.2,
+    });
+    const fill = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.035, 0.015), this.progressMat);
+    fill.position.x = 0.91; // the group pivot sits at the bar's left end
+    this.progressFill = new THREE.Group();
+    this.progressFill.position.set(-0.91, -0.53, 0.122);
+    this.progressFill.add(fill);
+    this.group.add(this.progressFill);
+    // Green target notch at the success end.
+    const notch = new THREE.Mesh(
+      new THREE.BoxGeometry(0.03, 0.07, 0.015),
+      new THREE.MeshStandardMaterial({ color: 0x35e065, emissive: 0x35e065, emissiveIntensity: 1.6 })
+    );
+    notch.position.set(0.93, -0.53, 0.122);
+    this.group.add(notch);
+  }
   flashWarning(dur = 1.0) {
     this._warningFlash = Math.max(this._warningFlash, dur);
   }
@@ -184,17 +224,31 @@ export class CircuitPanel {
       const lampTarget = states[i] ? 2.4 : 0.05;
       this.lampMats[i].emissiveIntensity = THREE.MathUtils.damp(this.lampMats[i].emissiveIntensity, lampTarget, 10, dt);
     }
-    // Power meter: dead at zero when unpowered, UNSTABLE (mid-scale wobble)
-    // while unsolved, full and steady when solved. It does not track
-    // correctCount - per-switch progress feedback would let players
-    // hill-climb without ever reading the wiring note.
+    // Proximity fraction: how many channels match the target (0..1). The
+    // needle and the bottom bar both read from it, so the two instruments
+    // always agree.
+    const frac = this.puzzle.solved ? 1 : this.puzzle.correctCount / this.puzzle.switches.length;
+
+    // Power meter: dead at zero (needle up-left) when unpowered; once live
+    // the needle sweeps left-to-right in proportion to the aligned channels
+    // (small jitter so the panel feels energised), pins at full when solved
+    // - the same direction the proximity bar fills.
     let meterTarget = 0.7; // zero (rest position)
     if (this.puzzle.solved) {
       meterTarget = -0.7; // full
     } else if (this.powered) {
-      meterTarget = Math.sin(performance.now() * 0.02) * 0.45; // unstable sweep
+      meterTarget = 0.7 - frac * 1.4 + Math.sin(performance.now() * 0.02) * 0.06;
     }
     this.needlePivot.rotation.z = THREE.MathUtils.damp(this.needlePivot.rotation.z, meterTarget, 6, dt);
+
+    // Proximity bar: slides toward the green target notch as more channels
+    // match; locks on (green, steady) the moment the circuit solves.
+    this._progressShown = THREE.MathUtils.damp(this._progressShown, frac, 6, dt);
+    this.progressFill.scale.x = Math.max(0.001, this._progressShown);
+    if (this.puzzle.solved) {
+      this.progressMat.emissive.setHex(0x35e065);
+      this.progressMat.emissiveIntensity = 2.2;
+    }
     if (this._warningFlash > 0) this._warningFlash = Math.max(0, this._warningFlash - dt);
     const warnTarget = this.puzzle.solved ? 0.05 : this._warningFlash > 0 ? 3.0 : 0.6;
     this.warningMat.emissiveIntensity = THREE.MathUtils.damp(this.warningMat.emissiveIntensity, warnTarget, 8, dt);

@@ -276,10 +276,8 @@ export class Laboratory {
     this.circuitPanel = new CircuitPanel({ materials: this.materials, puzzle: this.circuitPuzzle });
     p.add(g, this.circuitPanel.group, c, { x: 3.5, y: 1.7, z: 5.72, rotY: Math.PI });
 
-    // Wiring memo pinned beside the panel: the clue that makes the
-    // configuration deducible rather than random.
-    this.circuitMemo = this._buildCircuitMemo();
-    p.add(g, this.circuitMemo, c, { x: 1.5, y: 1.65, z: 5.8, rotY: Math.PI, block: false });
+    // No wiring memo any more (user revision): the panel's own "n of 5
+    // channels aligned" toast + proximity bar are what make it deducible.
 
     // Phase 17: pressure/valve rig on the east wall, south of the gear
     // machine (which spans z -2.2..0.2). Inactive until the circuit solves.
@@ -289,15 +287,21 @@ export class Laboratory {
     // local z = 0, so x = 7.79 puts its back exactly on the wall.
     p.add(g, this.valveRig.group, c, { x: 7.79, y: 1.3, z: 3.4, rotY: -Math.PI / 2 });
 
-    // Pressure placard beside the rig: the clue for the valve configuration.
-    this.pressurePlacard = this._buildPressurePlacard();
-    p.add(g, this.pressurePlacard, c, { x: 7.8, y: 0.75, z: 5.1, rotY: -Math.PI / 2, block: false });
+    // No pressure placard either: the rig is steered by the
+    // "n of 3 valves aligned" toast after each quarter-turn.
 
     // Phase 18: the final machine on the south wall, west of the circuit
     // panel (which spans roughly x 2.4..4.6). Inert until Game powers it.
     this.finalPuzzle = new FinalMachinePuzzle();
     this.finalMachine = new FinalMachine({ materials: this.materials, puzzle: this.finalPuzzle });
     p.add(g, this.finalMachine.group, c, { x: -2.2, z: 5.45, rotY: Math.PI });
+
+    // Painted orientation chart on the south wall beside the machine
+    // (Phase 24, user revision): the visual hint for the last puzzle - three
+    // bars painted at the dials' working angles, copied by eye. Sits in the
+    // old wiring-memo spot, clear of the circuit panel (x 2.4..4.6).
+    this.orientationChart = this._buildOrientationChart(this.finalPuzzle);
+    p.add(g, this.orientationChart, c, { x: 0.7, y: 1.55, z: 5.85, rotY: Math.PI, block: false });
 
     // Station plates: one reading per earlier puzzle, together they form
     // the final machine's dial solution (see FinalMachinePuzzle.js).
@@ -496,62 +500,67 @@ export class Laboratory {
     return g;
   }
 
+  // (The pressure placard and wiring memo builders were removed in the
+  // proximity-feedback revision: both notes spelled out their solutions.
+  // The rigs now teach themselves via "n of M aligned" toasts + the panel
+  // bar, so nothing in the room transcribes an answer.)
+
   /**
-   * Pressure placard pinned beside the valve rig (Phase 17).
+   * Painted orientation chart (Phase 24, user revision).
    *
-   * The clue that makes the valve configuration deducible: it names a
-   * direction for each valve, and the wheels cycle UP/RIGHT/DOWN/LEFT, so
-   * reading it tells the player exactly where to stop each wheel without
-   * the code ever exposing VALVE_SOLUTION.
+   * The requested hint for the final machine: a wall board with a painted
+   * design showing each dial's working angle - three pale bars in a row
+   * (same order as the dials: left/centre/right), each frozen at exactly
+   * the rotation FinalMachine applies to its dial, with painted dial-face
+   * discs behind them and a marker dot over the centre, like the sketch.
+   * Seeing the design, the player copies it onto the dials by eye; no
+   * degrees are ever named.
+   *
+   * Derived from puzzle.solution, so it stays correct even if the knob
+   * solution is ever rebalanced.
    */
-  _buildPressurePlacard() {
+  _buildOrientationChart(puzzle) {
     const g = new THREE.Group();
-    g.name = 'PressurePlacard';
+    g.name = 'OrientationChart';
 
     const board = new THREE.Mesh(
-      new THREE.BoxGeometry(0.42, 0.56, 0.03),
-      new THREE.MeshStandardMaterial({ color: 0xd8d2bd, roughness: 0.9 })
+      new THREE.BoxGeometry(1.35, 0.6, 0.04),
+      new THREE.MeshStandardMaterial({ color: 0x23282c, roughness: 0.85 })
     );
     g.add(board);
 
-    // Dark strips suggesting stencilled text lines.
-    const ink = new THREE.MeshStandardMaterial({ color: 0x2a2f34, roughness: 0.95 });
-    for (let i = 0; i < 5; i++) {
-      const line = new THREE.Mesh(new THREE.BoxGeometry(i === 0 ? 0.3 : 0.24, 0.025, 0.005), ink);
-      line.position.set(0, 0.2 - i * 0.08, 0.018);
-      g.add(line);
+    // Pale paint, matching the dial needles' proportions so "copy the
+    // orientation" is a literal visual match.
+    const paint = new THREE.MeshStandardMaterial({ color: 0xd8d2bd, roughness: 0.6 });
+    const disc = new THREE.MeshStandardMaterial({ color: 0x3a4046, roughness: 0.8 });
+
+    for (let i = 0; i < 3; i++) {
+      const x = (i - 1) * 0.42; // left / centre / right, like the dials
+
+      // Painted dial-face disc.
+      const face = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.01, 20), disc);
+      face.rotation.x = Math.PI / 2;
+      face.position.set(x, 0.05, 0.03);
+      g.add(face);
+
+      // Painted bar at the dial's working angle - the SAME rotation
+      // formula FinalMachine.update applies to dial i.
+      const pivot = new THREE.Group();
+      pivot.name = `chartSlot${i}`;
+      pivot.position.set(x, 0.05, 0.045);
+      pivot.rotation.z = -(puzzle.solution[i] * Math.PI) / 2;
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.26, 0.015), paint);
+      bar.position.y = 0.1; // extends from the pivot, like the needle
+      pivot.add(bar);
+      g.add(pivot);
     }
 
-    const pin = new THREE.Mesh(
-      new THREE.SphereGeometry(0.02, 8, 6),
-      new THREE.MeshStandardMaterial({ color: 0xb02020, roughness: 0.4 })
-    );
-    pin.position.set(0, 0.25, 0.02);
-    g.add(pin);
+    // Marker dot above the centre slot, like the pinned sketch.
+    const dot = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.01, 12), paint);
+    dot.rotation.x = Math.PI / 2;
+    dot.position.set(0, 0.38, 0.03);
+    g.add(dot);
 
-    return g;
-  }
-
-  /**
-   * Wiring memo pinned next to the circuit panel (Phase 16).
-   *
-   * A small paper sheet with the deduction clue. Returned as a group so
-   * Props.add can place it; Game registers it as a Read interaction.
-   */
-  _buildCircuitMemo() {
-    const g = new THREE.Group();
-    g.name = 'CircuitMemo';
-    const paper = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.5, 0.62),
-      new THREE.MeshStandardMaterial({ color: 0xd8d2bd, roughness: 0.9 })
-    );
-    g.add(paper);
-    const pin = new THREE.Mesh(
-      new THREE.SphereGeometry(0.02, 8, 6),
-      new THREE.MeshStandardMaterial({ color: 0xb02020, roughness: 0.4 })
-    );
-    pin.position.set(0, 0.28, 0.01);
-    g.add(pin);
     return g;
   }
 }

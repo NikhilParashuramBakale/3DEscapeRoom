@@ -1111,27 +1111,28 @@ lit.update(0.016);
 console.log('re-disable restores steady  :', lit._flickerValue === 1);
 
 
-console.log('\n--- phase 16: circuit puzzle logic (chained switches) ---');
+console.log('\n--- phase 16: circuit puzzle logic (independent switches) ---');
 const { CircuitPuzzle: CP, CIRCUIT_SOLUTION_MASK: CSM } = await import('../src/puzzles/CircuitPuzzle.js');
 const cp = new CP();
 console.log('starts all off, unsolved      :', cp.switches.every((s) => !s) && !cp.solved);
 console.log('solution mask is 0b10110 (22) :', CSM === 22 && cp.solution === 22);
 console.log('out-of-range toggle rejected  :', cp.toggle(5) === false && cp.toggle(-1) === false);
-// Chaining: throwing green (1) also trips yellow (2).
-const cpChain = new CP();
-cpChain.toggle(1);
-console.log('switch trips its neighbour    :', cpChain.switches[1] === true && cpChain.switches[2] === true);
-// Naive "set every channel the note names" (green, yellow, white) is WRONG
-// under the chain - this is the interdependence the puzzle is built on.
+// Isolation (Phase 24, user request): one lever moves ONE switch. The old
+// Lights-Out chain tripped the neighbour too - players saw two levers
+// moving when they pressed one and read it as a bug.
+const cpSolo = new CP();
+cpSolo.toggle(1);
+console.log('toggle flips only itself      :', cpSolo.switches[1] === true && cpSolo.switches.filter((s) => s).length === 1);
+console.log('neighbours stay untouched     :', !cpSolo.switches[0] && !cpSolo.switches[2] && !cpSolo.switches[3] && !cpSolo.switches[4]);
+// Setting every channel the clue names (green, yellow, white) is now the
+// direct answer - no chain to fight.
 const cpNaive = new CP();
 cpNaive.toggle(1); cpNaive.toggle(2); cpNaive.toggle(4);
-console.log('naive clue set does NOT solve :', cpNaive.solved === false);
-// Hand-solved: press green (1) + white (4) only. green also trips yellow,
-// landing exactly on 0b10110.
-cp.toggle(1); cp.toggle(4);
-console.log('chained solution solves       :', cp.solved === true && cp.mask === 22);
+console.log('direct set solves             :', cpNaive.solved === true && cpNaive.mask === 22);
+cp.toggle(1); cp.toggle(2); cp.toggle(4);
+console.log('direct solution solves        :', cp.solved === true && cp.mask === 22);
 console.log('locks after solve             :', cp.toggle(0) === false && cp.solved === true);
-// Brute force: exactly one press-subset reaches the target (invertible matrix).
+// Brute force: exactly one press-subset reaches the target (identity matrix).
 let solutions = 0;
 for (let subset = 0; subset < 32; subset++) {
   const cpx = new CP();
@@ -1140,10 +1141,10 @@ for (let subset = 0; subset < 32; subset++) {
 }
 console.log('exactly one solution exists   :', solutions === 1);
 const cp2 = new CP();
-cp2.toggle(0); // red ON = damaged channel (also trips green)
+cp2.toggle(0); // red ON = damaged channel, alone
 console.log('red channel alone not solved  :', cp2.solved === false);
-console.log('mask reflects chained states  :', cp2.mask === 3); // red+green on
-console.log('correctCount still tracks     :', cp2.correctCount === 2); // i1 wants on, i3 wants off
+console.log('mask reflects solo state      :', cp2.mask === 1); // red only
+console.log('correctCount still tracks     :', cp2.correctCount === 1); // only i3 (blue, wants OFF) matches
 
 console.log('\n--- phase 16: circuit panel wiring ---');
 const cPanelSrc = await import('fs').then((fs) => fs.readFileSync('src/environment/CircuitPanel.js', 'utf8'));
@@ -1206,7 +1207,7 @@ console.log('direction() reports state      :', new vMod.ValvePuzzle().direction
 
 console.log('\n--- phase 17: valve rig wiring ---');
 const vLabSrc = await import('fs').then((fs) => fs.readFileSync('src/environment/Laboratory.js', 'utf8'));
-console.log('lab builds rig + placard       :', vLabSrc.includes('new ValveRig(') && vLabSrc.includes('_buildPressurePlacard'));
+console.log('lab builds rig, notes removed :', vLabSrc.includes('new ValveRig(') && !vLabSrc.includes('pressurePlacard') && !vLabSrc.includes('circuitMemo'));
 console.log('lab updates rig per frame      :', vLabSrc.includes('this.valveRig.update(dt)'));
 console.log('GameState has valve flag       :', cGsSrc.includes('valvePuzzleSolved'));
 console.log('circuit powers the rig         :', cGameSrc.includes('lab.valveRig.powered = true'));
@@ -1375,12 +1376,63 @@ console.log('all done -> full count     :', countObjectivesDone(freshState) === 
 // The old freeze bug must not be possible: codeSolved without the note
 // must NOT point at the note.
 console.log('freeze bug is gone         :', currentObj(bypass) !== 'Find the lab note on the desk.');
-// Spec: solution-spelling hints removed from circuit memo + pressure placard.
-console.log('circuit memo has no hint   :', !/_readCircuitMemo[\s\S]{0,600}hint:/.test(cGameSrc));
-console.log('placard has no hint        :', !/_readPressurePlacard[\s\S]{0,600}hint:/.test(cGameSrc));
-// The clue itself must remain (removing the hint must not gut the puzzle).
-console.log('circuit clue body intact   :', cGameSrc.includes('The RED channel is burnt out.'));
-console.log('placard clue body intact   :', cGameSrc.includes('LEFT valve   -> DOWN'));
+// Spec (user revision): the solution-spelling notes are gone ENTIRELY;
+// feedback is the "n of M aligned" toast + the panel proximity bar.
+console.log('wiring memo fully removed:', !cGameSrc.includes('_readCircuitMemo') && !vLabSrc.includes('circuitMemo'));
+console.log('placard fully removed    :', !cGameSrc.includes('_readPressurePlacard') && !vLabSrc.includes('pressurePlacard'));
+// Removing the notes must not gut the ONE remaining clue source.
+console.log('code sheet still readable:', cGameSrc.includes('_readCodeSheet') && cGameSrc.includes('readingPanel.open'));
 // Game uses the bypass-aware counter for the completion screen.
 console.log('end screen uses new count  :', cGameSrc.includes('countObjectivesDone(this.gameState)'));
+
+
+console.log('\n--- phase 23: proximity feedback (correct-count + bar) ---');
+// User revision: after every try the game says HOW MANY targets match,
+// and a bar on the panel slides right toward a green notch as the
+// combination improves - so players can tell when they are getting closer.
+console.log('circuit count toast        :', cGameSrc.includes('of 5 channels aligned'));
+console.log('valve count toast          :', cGameSrc.includes('of 3 valves aligned'));
+console.log('panel has proximity bar    :', cPanelSrc.includes('_buildProgressBar') && cPanelSrc.includes('progressFill'));
+console.log('bar reads correctCount     :', /correctCount \/ this\.puzzle\.switches\.length/.test(cPanelSrc));
+console.log('bar fills toward the right :', cPanelSrc.includes('this.progressFill.scale.x = Math.max(0.001, this._progressShown)'));
+console.log('bar locks on when solved   :', cPanelSrc.includes('this.progressMat.emissive.setHex(0x35e065)'));
+console.log('needle tracks progress too :', /meterTarget = 0\.7 - frac \* 1\.4/.test(cPanelSrc));
+// Alignment fix: meter and warning dome moved ABOVE the lamp row so every
+// channel lamp sits visible directly over its own switch column.
+console.log('meter cleared lamp row     :', cPanelSrc.includes('housing.position.set(-0.62, 0.52'));
+console.log('dome cleared lamp row      :', cPanelSrc.includes('dome.position.set(0.62, 0.52'));
+console.log('lamps share switch column  :', cPanelSrc.includes('lamp.position.set(x, 0.3, 0.12)'));
+// Behavioural: the fraction the bar computes, from live puzzle state.
+const bpMod = await import('../src/puzzles/CircuitPuzzle.js');
+let bpSolved = false;
+for (let m = 0; m < 32 && !bpSolved; m++) {
+  const cand = new bpMod.CircuitPuzzle();
+  for (let b = 0; b < 5; b++) if ((m >> b) & 1) cand.toggle(b);
+  if (cand.solved) bpSolved = cand.correctCount === 5; // bar fraction = 1
+}
+console.log('bar can reach full (solve) :', bpSolved);
+const bpMid = new bpMod.CircuitPuzzle();
+bpMid.toggle(2);
+console.log('bar mid-state is 0<x<1     :', bpMid.correctCount / 5 > 0 && bpMid.correctCount / 5 < 1);
+
+
+console.log('\n--- phase 24: switch isolation + painted orientation chart ---');
+// User revision 1: pressing one electric-puzzle lever must not move a
+// second lever (the neighbour-flip chain is gone).
+const cpSrc24 = await import('fs').then((fs) => fs.readFileSync('src/puzzles/CircuitPuzzle.js', 'utf8'));
+console.log('chain code fully removed     :', !cpSrc24.includes('index + 1') && !cpSrc24.includes('_flip'));
+const iso = new CP();
+iso.toggle(2);
+console.log('behaviour: one lever, one sw :', iso.switches.filter((s) => s).length === 1 && iso.switches[2] === true);
+// User revision 2: painted orientation chart beside the final machine - a
+// visual "copy this angle" design (the attached-sketch style hint).
+console.log('chart built in lab           :', vLabSrc.includes('_buildOrientationChart') && vLabSrc.includes('orientationChart'));
+console.log('chart registered for examine :', cGameSrc.includes('orientationChart') && cGameSrc.includes('Calibration Chart'));
+console.log('chart exists in the room     :', !!lab.orientationChart);
+console.log('chart slots match solution   :', !!lab.orientationChart &&
+  [0, 1, 2].every((i) => {
+    const s = lab.orientationChart.getObjectByName(`chartSlot${i}`);
+    return s && Math.abs(s.rotation.z + (lab.finalPuzzle.solution[i] * Math.PI) / 2) < 1e-9;
+  }));
+console.log('bars use the dial formula    :', vLabSrc.includes('-(puzzle.solution[i] * Math.PI) / 2'));
 
