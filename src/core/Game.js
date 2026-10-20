@@ -316,6 +316,16 @@ export class Game {
     });
     driverGear.hitbox.scale.set(1.5, 1.5, 1.5);
 
+    // The keyhole on the cabinet front (user revision): the brass key must
+    // be physically, visibly seated before the drive lock releases.
+    const machineKey = this.interactions.register(lab.machine.keyProxy, {
+      verb: 'Use',
+      label: 'Keyhole',
+      distance: 2.0,
+      onInteract: () => this._insertMachineKey(),
+    });
+    machineKey.hitbox.scale.set(1.3, 1.3, 1.3);
+
     // The desk itself is scenery; the drawer is the real interaction target.
     this.interactions.register(lab.desk, {
       verb: 'Examine',
@@ -443,34 +453,9 @@ export class Game {
       io.hitbox.scale.set(1.0, 0.9, 0.8);
     }
 
-    // Orientation chart (user revision): examine-only. Its painted bars
-    // already sit at each dial's working angle, so the hint is literally
-    // "copy the paint"; the text just names the left/centre/right mapping.
-    this.interactions.register(lab.orientationChart, {
-      verb: 'Examine',
-      label: 'Calibration Chart',
-      distance: 2.2,
-      onInteract: () => {
-        this.prompt.hide();
-        this.audio.uiClick();
-        this.readingPanel.open({
-          title: 'Calibration Chart',
-          lines: [
-            'Three pale bars, hand-painted, each frozen at the angle',
-            'its dial has to run at.',
-            '',
-            'Left bar   -> left dial',
-            'Centre bar -> centre dial',
-            'Right bar  -> right dial',
-            '',
-            'Set every dial the way the paint shows, then press the',
-            'big button.',
-          ],
-          // The chart itself IS the hint - no numeric degrees given, the
-          // player copies orientations by eye (the requested design).
-        });
-      },
-    });
+    // No orientation chart (removed per user image): the calibration board
+    // and its examine modal are gone. The station plates above are the
+    // remaining clue path to the dial solution.
 
     // While a document is open the prompt must not linger under the modal.
     this.readingPanel.onClose = () => this.prompt.hide();
@@ -829,10 +814,40 @@ export class Game {
   }
 
   /**
+   * Seat the brass key in the machine's keyhole (user revision).
+   *
+   * Until now `hasKey` was only an inventory flag that silently un-gated the
+   * gear. This makes the handoff physical: the key slides into the lock and
+   * turns (Machine.insertKey animation), and only then does the drive obey.
+   */
+  _insertMachineKey() {
+    const lab = this.laboratory;
+
+    if (this.gameState.machineKeyInserted) {
+      this.messages.flash('The brass key sits deep in the lock, turned firm.', { tone: 'good' });
+      return;
+    }
+    if (!this.gameState.hasKey) {
+      this.audio.keypadReject();
+      this.messages.flash('A brass keyhole, empty. The key must be somewhere in this room.', {
+        tone: 'bad',
+      });
+      return;
+    }
+
+    this.gameState.set('machineKeyInserted', true);
+    lab.machine.insertKey();
+    this.audio.keyInsert();
+    this.messages.flash('The key slides home and turns - the drive lock releases.', {
+      tone: 'good',
+    });
+  }
+
+  /**
    * Turn the driver gear one tooth.
    *
-   * Gating order matters: the machine needs the key, and once powered the
-   * player cannot keep turning it.
+   * Gating order matters: the key must be SEATED in the keyhole first (not
+   * merely held), and once powered the player cannot keep turning it.
    */
   _turnGear() {
     const lab = this.laboratory;
@@ -841,11 +856,14 @@ export class Game {
       this.messages.flash('The machine is already running.', { tone: 'good' });
       return;
     }
-    if (!this.gameState.hasKey) {
-      // A dull, dead thud - the gear is seized, so it should not sound like a
-      // successful turn.
+    if (!this.gameState.machineKeyInserted) {
+      // A dull, dead thud - the drive lock is still engaged, so it should
+      // not sound like a successful turn.
       this.audio.keypadReject();
-      this.messages.flash('The gear is seized. Something is holding the lock.', { tone: 'bad' });
+      const hint = this.gameState.hasKey
+        ? 'The drive lock is engaged. The keyhole below the gears is waiting.'
+        : 'The drive gear is locked tight. It needs a key.';
+      this.messages.flash(hint, { tone: 'bad' });
       return;
     }
 

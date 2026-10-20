@@ -164,6 +164,7 @@ export const OBJECTIVES = [
   { flag: 'hasReadCodeSheet', text: 'Find the lab note on the desk.' },
   { flag: 'codeSolved', text: 'Work out the code and use the pedestal keypad.' },
   { flag: 'hasKey', text: 'Open the desk drawer and take the key.' },
+  { flag: 'machineKeyInserted', text: 'Insert the key into the machine on the east wall.' },
   { flag: 'gearPuzzleSolved', text: 'Restore power to the machine on the east wall.' },
   { flag: 'circuitPuzzleSolved', text: 'Restore the circuit panel on the south wall.' },
   { flag: 'valvePuzzleSolved', text: 'Balance the pressure valves on the east wall.' },

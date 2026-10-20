@@ -221,6 +221,13 @@ export class AudioManager {
     this._tone({ freq: 784, type: 'sine', dur: 0.26, gain: 0.2, delay: 0.11 });
   }
 
+  /** Key sliding into a lock, then the tumbling turn (machine keyhole). */
+  keyInsert() {
+    this._noiseBurst({ dur: 0.16, gain: 0.15, freq: 2600, q: 3, sweepTo: 1400 }); // metal slide
+    this._tone({ freq: 300, type: 'square', dur: 0.07, gain: 0.13, delay: 0.16 }); // pin tick
+    this._tone({ freq: 185, type: 'triangle', dur: 0.16, gain: 0.12, delay: 0.24 }); // lock thunk
+  }
+
   /** Drawer sliding open: filtered noise sweeping up, plus a wooden stop. */
   drawerOpen() {
     this._noiseBurst({ dur: 0.55, gain: 0.2, freq: 260, q: 0.8, sweepTo: 900 });

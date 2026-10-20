@@ -265,14 +265,16 @@ console.log('driver assigned               :', machine.driver === machine.gears[
 console.log('markers built                 :', machine.markers.length, '(expect 3)');
 
 // Gears must be spaced apart by roughly the sum of their radii, not stacked.
-const zs = machine.gears.map((g) => Number(g.position.z.toFixed(3)));
-const gap01 = Number((machine.gears[1].position.z - machine.gears[0].position.z).toFixed(3));
+// (Phase 25 rework: the train now spans local x - across the face the player
+// reads - instead of local z, which pointed into the wall.)
+const xs = machine.gears.map((g) => Number(g.position.x.toFixed(3)));
+const gap01 = Number((machine.gears[1].position.x - machine.gears[0].position.x).toFixed(3));
 const expected01 = Number(
   (machine.gears[0].userData.radius + machine.gears[1].userData.radius - 0.02).toFixed(3)
 );
-console.log('gear z positions              :', JSON.stringify(zs));
+console.log('gear x positions              :', JSON.stringify(xs));
 console.log('gap 0->1 matches radii sum    :', gap01 === expected01, `(${gap01} vs ${expected01})`);
-console.log('gears do not overlap in z     :', zs[0] < zs[1] && zs[1] < zs[2]);
+console.log('gears do not overlap in x     :', xs[0] < xs[1] && xs[1] < xs[2]);
 
 // turnDriver must report the solved state, and update() must not throw.
 let reported = false;
@@ -1354,10 +1356,12 @@ const { currentObjective: currentObj, countObjectivesDone } = await import('../s
 const bypass = new GameState();
 bypass.set('codeSolved', true);          // guessed the code...
 bypass.set('hasKey', true);              // ...took the key; note NEVER read
-// Note entry is bypassed (later flags set); so is codeSolved and hasKey,
-// so the tracker lands on the NEXT incomplete step: the gears.
+bypass.set('machineKeyInserted', true);  // ...and seated it (phase 25 step)
+// Note entry is bypassed (later flags set); so are codeSolved, hasKey and
+// the key-seating step, so the tracker lands on the NEXT incomplete step:
+// the gears.
 console.log('bypass skips note step     :', currentObj(bypass) === 'Restore power to the machine on the east wall.');
-console.log('bypass counts note as done :', countObjectivesDone(bypass) === 3);
+console.log('bypass counts note as done :', countObjectivesDone(bypass) === 4);
 // The narrower case: code solved, drawer open, key still inside. The
 // tracker must point at the key, NOT the never-read note.
 const bypass2 = new GameState();
@@ -1416,7 +1420,7 @@ bpMid.toggle(2);
 console.log('bar mid-state is 0<x<1     :', bpMid.correctCount / 5 > 0 && bpMid.correctCount / 5 < 1);
 
 
-console.log('\n--- phase 24: switch isolation + painted orientation chart ---');
+console.log('\n--- phase 24: switch isolation + chart removal ---');
 // User revision 1: pressing one electric-puzzle lever must not move a
 // second lever (the neighbour-flip chain is gone).
 const cpSrc24 = await import('fs').then((fs) => fs.readFileSync('src/puzzles/CircuitPuzzle.js', 'utf8'));
@@ -1424,15 +1428,60 @@ console.log('chain code fully removed     :', !cpSrc24.includes('index + 1') && 
 const iso = new CP();
 iso.toggle(2);
 console.log('behaviour: one lever, one sw :', iso.switches.filter((s) => s).length === 1 && iso.switches[2] === true);
-// User revision 2: painted orientation chart beside the final machine - a
-// visual "copy this angle" design (the attached-sketch style hint).
-console.log('chart built in lab           :', vLabSrc.includes('_buildOrientationChart') && vLabSrc.includes('orientationChart'));
-console.log('chart registered for examine :', cGameSrc.includes('orientationChart') && cGameSrc.includes('Calibration Chart'));
-console.log('chart exists in the room     :', !!lab.orientationChart);
-console.log('chart slots match solution   :', !!lab.orientationChart &&
-  [0, 1, 2].every((i) => {
-    const s = lab.orientationChart.getObjectByName(`chartSlot${i}`);
-    return s && Math.abs(s.rotation.z + (lab.finalPuzzle.solution[i] * Math.PI) / 2) < 1e-9;
-  }));
-console.log('bars use the dial formula    :', vLabSrc.includes('-(puzzle.solution[i] * Math.PI) / 2'));
+// User revision 2 (attached image): DELETE the calibration chart outright -
+// the wall board, its builder and the "Examine: Calibration Chart" modal.
+// The station plates stay as the clue path to the dial solution.
+console.log('chart board fully removed    :', !vLabSrc.includes('orientationChart') && !vLabSrc.includes('_buildOrientationChart'));
+console.log('chart modal fully removed    :', !cGameSrc.includes('orientationChart') && !cGameSrc.includes('Calibration Chart'));
+console.log('chart gone from the room     :', !('orientationChart' in lab));
+console.log('dial formula gone with it    :', !vLabSrc.includes('-(puzzle.solution[i] * Math.PI) / 2'));
+console.log('station plates still clue    :', Array.isArray(lab.stationPlates) && lab.stationPlates.length === 3);
+console.log('plates still readable        :', cGameSrc.includes("label: 'Station Plate'"));
+
+
+console.log('\n--- phase 25: machine key lock + visible gear train ---');
+// User revision (image): the east-wall machine "is not good" - the gears
+// were sealed inside solid boxes (invisible from every angle), the cabinet
+// was half-sunk into the floor, the lamp floated above the roof, and
+// "having the key" was an invisible flag. Rework: gear train mounted proud
+// on the west face, floor-standing cabinet, visible key insertion, pale
+// alignment marks + a crank on the driver.
+console.log('keyhole proxy built          :', !!lab.machine.keyProxy && lab.machine.keyProxy.name === 'MachineKeyProxy');
+console.log('key starts hidden            :', !!lab.machine.key && lab.machine.key.visible === false);
+console.log('keyhole registered in Game   :', cGameSrc.includes('lab.machine.keyProxy') && cGameSrc.includes('_insertMachineKey'));
+// Scopable check: _insertMachineKey HAS an !hasKey branch (empty-hole use),
+// but _turnGear itself must gate only on the seated key.
+const turnGearBody = cGameSrc.slice(cGameSrc.indexOf('_turnGear() {'), cGameSrc.indexOf('_powerOn() {'));
+console.log('drive gate reads the seat    :', turnGearBody.length > 0 &&
+  /if \(!this\.gameState\.machineKeyInserted\)/.test(turnGearBody) &&
+  !/if \(!this\.gameState\.hasKey\)/.test(turnGearBody));
+
+// Insertion: reveal at the mouth, slide fully home, then turn about the shaft.
+lab.machine.insertKey();
+console.log('insert reveals the key       :', lab.machine.key.visible === true && lab.machine.keyInserted === true);
+for (let i = 0; i < 60; i++) lab.machine.update(1 / 60); // 1 s > the 0.9 s clip
+const seatedZ = Number(lab.machine.key.position.z.toFixed(3));
+const turnedZ = Number(lab.machine.key.rotation.z.toFixed(3));
+console.log('key slides fully home        :', Math.abs(seatedZ - lab.machine.KEY_SEATED_Z) < 0.02, `(${seatedZ})`);
+console.log('key turns in the lock        :', Math.abs(turnedZ - lab.machine.KEY_TURN_RAD) < 0.02, `(${turnedZ})`);
+const seatedBefore = lab.machine.key.position.z;
+lab.machine.insertKey();
+console.log('re-insert does not replay    :', lab.machine.key.position.z === seatedBefore && lab.machine._keyT === 1);
+
+// The machine is actually VISIBLE now.
+console.log('gears proud on the face      :', lab.machine.gears.every((g) => g.position.z > 0.3));
+console.log('train spans the bay in x     :', lab.machine.gears[0].position.x < -0.3 && lab.machine.gears[2].position.x > 0.3);
+console.log('cabinet stands on the floor  :', lab.machine.group.position.y === 0.75 && lab.machineBox.min.y >= -0.01);
+console.log('cabinet flush to the wall    :', Math.abs(lab.machineBox.max.x - 7.85) < 1e-6);
+console.log('lamp grounded on the roof    :', lab.machine.lamp.position.y > 0.75 && lab.machine.lamp.position.y < 1.0);
+console.log('markers are pale paint       :', machine.markerMat.color.getHex() === 0xd8d2bd && machine.markerMat.emissiveIntensity > 0);
+console.log('driver has a crank           :', !!machine.driver.getObjectByName('Crank'));
+
+// Supporting pieces: state flag, objective step, audio hook.
+console.log('gamestate flag exists        :', new GameState().machineKeyInserted === false);
+const seatIdx = OBJECTIVES.findIndex((o) => o.flag === 'machineKeyInserted');
+const gearIdx = OBJECTIVES.findIndex((o) => o.flag === 'gearPuzzleSolved');
+console.log('objective seats key first    :', seatIdx !== -1 && seatIdx < gearIdx &&
+  OBJECTIVES[seatIdx].text === 'Insert the key into the machine on the east wall.');
+console.log('key insertion has a sound    :', vAudioSrc.includes('keyInsert()'));
 

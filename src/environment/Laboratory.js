@@ -246,10 +246,15 @@ export class Laboratory {
     this.group.add(this.keypad.group);
 
     // Phase 8: the power machine on the east wall. The gear puzzle needs the
-    // key, so the machine only accepts input once the player has it.
+    // key seated in its keyhole (machineKeyInserted), so the machine only
+    // accepts input once the player has used the key on the cabinet.
     this.gearPuzzle = new GearPuzzle({ teeth: [12, 18, 12], targets: [0, 6, 0] });
     this.machine = new Machine({ materials: this.materials, puzzle: this.gearPuzzle });
-    this.machine.group.position.set(7.2, 0, -1.0);
+    // Back (local z -0.25) sits flush on the east wall's inner face (x 7.85);
+    // y 0.75 so the 1.5 m cabinet STANDS on the floor instead of being
+    // half-sunk into it. With rotY -90° the +z face (gear train, keyhole,
+    // vents) looks west into the room.
+    this.machine.group.position.set(7.6, 0.75, -1.0);
     this.machine.group.rotation.y = -Math.PI / 2; // face into the room
     this.group.add(this.machine.group);
 
@@ -259,8 +264,9 @@ export class Laboratory {
     // permeable - the player could stand inside the gears.
     //
     // The Box3 is measured from the ROTATED group, so the footprint already
-    // accounts for the -90 degree turn (the cabinet faces into the room, so its
-    // long axis runs along Z, not X).
+    // accounts for the -90 degree turn: the 1.9 m long axis runs along Z
+    // (down the wall), the 0.5 m depth along X, and the key (held just proud
+    // of its keyhole) pulls the west edge out to cover its insertion arc.
     this.machineBox = new THREE.Box3().setFromObject(this.machine.group);
     c.push({
       minX: this.machineBox.min.x,
@@ -280,7 +286,7 @@ export class Laboratory {
     // channels aligned" toast + proximity bar are what make it deducible.
 
     // Phase 17: pressure/valve rig on the east wall, south of the gear
-    // machine (which spans z -2.2..0.2). Inactive until the circuit solves.
+    // machine (which spans z -1.95..-0.05). Inactive until the circuit solves.
     this.valvePuzzle = new ValvePuzzle();
     this.valveRig = new ValveRig({ materials: this.materials, puzzle: this.valvePuzzle });
     // East wall inner face is x = 7.85; the plate is 0.12 deep and centred at
@@ -296,12 +302,9 @@ export class Laboratory {
     this.finalMachine = new FinalMachine({ materials: this.materials, puzzle: this.finalPuzzle });
     p.add(g, this.finalMachine.group, c, { x: -2.2, z: 5.45, rotY: Math.PI });
 
-    // Painted orientation chart on the south wall beside the machine
-    // (Phase 24, user revision): the visual hint for the last puzzle - three
-    // bars painted at the dials' working angles, copied by eye. Sits in the
-    // old wiring-memo spot, clear of the circuit panel (x 2.4..4.6).
-    this.orientationChart = this._buildOrientationChart(this.finalPuzzle);
-    p.add(g, this.orientationChart, c, { x: 0.7, y: 1.55, z: 5.85, rotY: Math.PI, block: false });
+    // No orientation chart (removed per user image): the calibration board
+    // and its "Examine: Calibration Chart" modal are gone. The station plates
+    // below remain the only clue path to the dial solution.
 
     // Station plates: one reading per earlier puzzle, together they form
     // the final machine's dial solution (see FinalMachinePuzzle.js).
@@ -500,67 +503,9 @@ export class Laboratory {
     return g;
   }
 
-  // (The pressure placard and wiring memo builders were removed in the
-  // proximity-feedback revision: both notes spelled out their solutions.
-  // The rigs now teach themselves via "n of M aligned" toasts + the panel
-  // bar, so nothing in the room transcribes an answer.)
-
-  /**
-   * Painted orientation chart (Phase 24, user revision).
-   *
-   * The requested hint for the final machine: a wall board with a painted
-   * design showing each dial's working angle - three pale bars in a row
-   * (same order as the dials: left/centre/right), each frozen at exactly
-   * the rotation FinalMachine applies to its dial, with painted dial-face
-   * discs behind them and a marker dot over the centre, like the sketch.
-   * Seeing the design, the player copies it onto the dials by eye; no
-   * degrees are ever named.
-   *
-   * Derived from puzzle.solution, so it stays correct even if the knob
-   * solution is ever rebalanced.
-   */
-  _buildOrientationChart(puzzle) {
-    const g = new THREE.Group();
-    g.name = 'OrientationChart';
-
-    const board = new THREE.Mesh(
-      new THREE.BoxGeometry(1.35, 0.6, 0.04),
-      new THREE.MeshStandardMaterial({ color: 0x23282c, roughness: 0.85 })
-    );
-    g.add(board);
-
-    // Pale paint, matching the dial needles' proportions so "copy the
-    // orientation" is a literal visual match.
-    const paint = new THREE.MeshStandardMaterial({ color: 0xd8d2bd, roughness: 0.6 });
-    const disc = new THREE.MeshStandardMaterial({ color: 0x3a4046, roughness: 0.8 });
-
-    for (let i = 0; i < 3; i++) {
-      const x = (i - 1) * 0.42; // left / centre / right, like the dials
-
-      // Painted dial-face disc.
-      const face = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.01, 20), disc);
-      face.rotation.x = Math.PI / 2;
-      face.position.set(x, 0.05, 0.03);
-      g.add(face);
-
-      // Painted bar at the dial's working angle - the SAME rotation
-      // formula FinalMachine.update applies to dial i.
-      const pivot = new THREE.Group();
-      pivot.name = `chartSlot${i}`;
-      pivot.position.set(x, 0.05, 0.045);
-      pivot.rotation.z = -(puzzle.solution[i] * Math.PI) / 2;
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.26, 0.015), paint);
-      bar.position.y = 0.1; // extends from the pivot, like the needle
-      pivot.add(bar);
-      g.add(pivot);
-    }
-
-    // Marker dot above the centre slot, like the pinned sketch.
-    const dot = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.01, 12), paint);
-    dot.rotation.x = Math.PI / 2;
-    dot.position.set(0, 0.38, 0.03);
-    g.add(dot);
-
-    return g;
-  }
+  // (The pressure placard, wiring memo and orientation-chart builders were
+  // removed across the feedback revisions: the placard and memo spelled out
+  // their solutions, and the user deleted the chart outright. The rigs now
+  // teach themselves via "n of M aligned" toasts + the panel bar, so nothing
+  // in the room transcribes an answer.)
 }

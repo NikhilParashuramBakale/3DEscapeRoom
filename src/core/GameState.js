@@ -10,6 +10,7 @@ export class GameState {
     this.hasReadCodeSheet = false;
     this.codeSolved = false;
     this.hasKey = false;
+    this.machineKeyInserted = false; // key physically seated in the east-wall lock
     this.gearPuzzleSolved = false;
     this.machineActive = false;
     this.circuitPuzzleSolved = false;
