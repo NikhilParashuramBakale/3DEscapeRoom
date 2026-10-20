@@ -10,9 +10,10 @@
  *   C <- FLOW     = 270 deg  (plate by the pressure rig, east wall)
  *
  * so the player can visit all three earlier puzzles' stations and combine
- * the readings. As a gentler alternative (Phase 24, user request), the
- * painted orientation chart beside the machine shows the same solution
- * visually - three bars frozen at the working angles, copied by eye.
+ * the readings. As a gentler alternative (Phases 24/27, user requests), the
+ * abstract painting beside the machine shows the same solution as three
+ * brush strokes frozen at the working angles - it reads as art, not as a
+ * diagram, and is copied by eye.
  *
  * Pure: no Three.js, no DOM (mirrors GearPuzzle/CircuitPuzzle/ValvePuzzle).
  */

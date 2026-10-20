@@ -330,8 +330,22 @@ pc.setExitZone(lab.corridorBounds);
 pc.setColliders(lab.colliders);
 
 const doorX = -0.8 + 0.8; // centre of the 1.6-wide doorway
+
+// Walkthrough regression: the corridor zone used to be walkable
+// UNCONDITIONALLY and the door leaf has no collider, so the player could
+// walk straight out through a SHUT door. The exit zone is now gated on the
+// door actually being open (setExitOpen, synced from Game each frame).
+pc.setExitOpen(false);
+console.log('closed door blocks corridor  :', pc._collides(doorX, -6.5));
+console.log('closed door blocks threshold :', pc._collides(doorX, -5.5));
+console.log('room side of door still free :', !pc._collides(doorX, -5.4));
+
+// Everything below runs with the door OPEN - the state the old test assumed
+// but never declared.
+pc.setExitOpen(true);
 pc.object.position.set(doorX, pc.eyeHeight, -5.4);
 console.log('spawn at doorway, walkable    :', !pc._collides(doorX, -5.4));
+console.log('open door frees the corridor :', !pc._collides(doorX, -6.5));
 
 // Step north in FINE increments. A coarse step can hop across a thin blocked
 // band that continuous movement cannot cross; 0.02 is well under the player
@@ -1428,13 +1442,17 @@ console.log('chain code fully removed     :', !cpSrc24.includes('index + 1') && 
 const iso = new CP();
 iso.toggle(2);
 console.log('behaviour: one lever, one sw :', iso.switches.filter((s) => s).length === 1 && iso.switches[2] === true);
-// User revision 2 (attached image): DELETE the calibration chart outright -
-// the wall board, its builder and the "Examine: Calibration Chart" modal.
-// The station plates stay as the clue path to the dial solution.
-console.log('chart board fully removed    :', !vLabSrc.includes('orientationChart') && !vLabSrc.includes('_buildOrientationChart'));
-console.log('chart modal fully removed    :', !cGameSrc.includes('orientationChart') && !cGameSrc.includes('Calibration Chart'));
-console.log('chart gone from the room     :', !('orientationChart' in lab));
-console.log('dial formula gone with it    :', !vLabSrc.includes('-(puzzle.solution[i] * Math.PI) / 2'));
+// User revision 2+3: the old calibration chart was deleted because its
+// modal spelled out the dial FORMULA; the painting that was meant to stay
+// must also NOT read as a hint board - it is now an abstract canvas whose
+// only puzzle content is one brush-stroke angle per ring motif. No title,
+// no letters, no degrees, no modal. Station plates remain the numeric path.
+console.log('painting present in the room :', 'orientationChart' in lab && lab.orientationChart.name === 'OrientationChart');
+console.log('builder paints ring motifs   :', vLabSrc.includes('_buildOrientationChart') && vLabSrc.includes('_chartStates') && vLabSrc.includes('const rings = ['));
+console.log('no formula text anywhere     :', !vLabSrc.includes('dialA') && !vLabSrc.includes('% 360') && !cGameSrc.includes('dialA'));
+console.log('no examine modal for it      :', !cGameSrc.includes('Calibration Chart') && !/orientationChart[\s\S]{0,500}readingPanel\.open/.test(cGameSrc));
+console.log('needles derive from solution :', Array.isArray(lab._chartStates) && lab._chartStates.join() === lab.finalPuzzle.solution.join());
+console.log('painting registered in Game  :', cGameSrc.includes('lab.orientationChart') && cGameSrc.includes("label: 'Painting'"));
 console.log('station plates still clue    :', Array.isArray(lab.stationPlates) && lab.stationPlates.length === 3);
 console.log('plates still readable        :', cGameSrc.includes("label: 'Station Plate'"));
 
@@ -1484,4 +1502,41 @@ const gearIdx = OBJECTIVES.findIndex((o) => o.flag === 'gearPuzzleSolved');
 console.log('objective seats key first    :', seatIdx !== -1 && seatIdx < gearIdx &&
   OBJECTIVES[seatIdx].text === 'Insert the key into the machine on the east wall.');
 console.log('key insertion has a sound    :', vAudioSrc.includes('keyInsert()'));
+
+
+console.log('\n--- phase 26: door walkthrough gate + orientation painting ---');
+// Walkthrough bug (user report): with the door SHUT the player could still
+// walk out into the corridor - the leaf has no collider and _collides()
+// allowed the exit zone unconditionally. Now the corridor half of the
+// walkable union exists only while the door is actually open, and Game
+// syncs that state every frame before movement.
+const pc26 = new PlayerController(new T.PerspectiveCamera(), {
+  addEventListener: noop, removeEventListener: noop,
+  requestPointerLock: noop, ownerDocument: globalThis.document,
+});
+console.log('player starts exit-shut      :', pc26.exitOpen === false);
+pc26.setBounds(lab.bounds);
+pc26.setExitZone(lab.corridorBounds);
+pc26.setColliders(lab.colliders);
+console.log('shut door blocks doorway gap :', pc26._collides(0, -6.5));
+console.log('shut door blocks threshold   :', pc26._collides(0, -5.5));
+pc26.setExitOpen(true);
+console.log('open door re-opens the path  :', !pc26._collides(0, -6.5));
+console.log('Game syncs door into player  :', cGameSrc.includes('setExitOpen(this.laboratory.door.isOpen)'));
+console.log('escape still needs open door :', /const doorOpen = lab\.door\.isOpen;/.test(cGameSrc));
+
+// Orientation painting (restored per user clarification): hint only, hung
+// on the south wall beside the final machine, needles = live solution.
+const chartPos = lab.orientationChart.position;
+console.log('painting hangs by the machine:', Math.abs(chartPos.x - (-4.4)) < 1e-6 && chartPos.z > 5.5);
+console.log('painting faces into the room :', lab.orientationChart.rotation.y === Math.PI);
+console.log('needles painted from solution:', Array.isArray(lab._chartStates) && lab._chartStates.join() === lab.finalPuzzle.solution.join());
+// Needle convention must match the physical pointers: the machine eases
+// rotation.z to -(state*PI)/2, i.e. state 1 = 90 deg CLOCKWISE as seen
+// head-on - the same direction the canvas needle angle uses.
+const vFmSrc26 = await import('fs').then((fs) => fs.readFileSync('src/environment/FinalMachine.js', 'utf8'));
+console.log('needle dir matches the dials :', vFmSrc26.includes('-(this.puzzle.states[i] * Math.PI) / 2') &&
+  vLabSrc.includes('(this._chartStates[i] * Math.PI) / 2'));
+console.log('painting says nothing        :', !vLabSrc.includes('ORIENTATION') &&
+  (vLabSrc.match(/fillText\(/g) || []).length === 0); // zero words drawn on the canvas
 

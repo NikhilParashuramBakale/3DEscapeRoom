@@ -26,6 +26,10 @@ export class PlayerController {
     this.colliders = [];
     this.bounds = { minX: -8, maxX: 8, minZ: -6, maxZ: 6 };
     this.exitZone = null;      // optional walkable region outside the room
+    // Walkthrough fix: the corridor is only legal while the door is actually
+    // swung open. The leaf has no collider, so without this gate the doorway
+    // gap in the wall is a hole you can walk through with the door shut.
+    this.exitOpen = false;
     this.blocked = false; // true when a UI (keypad) pauses control
 
     this._bobTime = 0;
@@ -75,6 +79,15 @@ export class PlayerController {
     this.exitZone = zone;
   }
 
+  /**
+   * Whether the exit door is currently open. Game syncs this every frame from
+   * `lab.door.isOpen`; while false the corridor half of the walkable union
+   * does not exist, so the doorway physically blocks the player.
+   */
+  setExitOpen(open) {
+    this.exitOpen = !!open;
+  }
+
   setColliders(colliders) {
     this.colliders = colliders;
   }
@@ -88,8 +101,13 @@ export class PlayerController {
   /** True if a circle at (x, z) would overlap a collider or leave the room. */
   _collides(x, z) {
     const insideRoom = this._inBox(this.bounds, x, z);
-    const insideExit = this.exitZone ? this._inBox(this.exitZone, x, z) : false;
-    // Legal in either region; the overlap through the doorway lets you step out.
+    // The corridor counts only while the door is open (see setExitOpen): the
+    // leaf is not a collider, so an unconditional exit zone let the player
+    // walk out through a closed door.
+    const insideExit =
+      this.exitZone && this.exitOpen ? this._inBox(this.exitZone, x, z) : false;
+    // Legal in either region; the overlap through the OPEN doorway lets you
+    // step out without a hard seam.
     if (!insideRoom && !insideExit) return true;
 
     const r = this.radius;

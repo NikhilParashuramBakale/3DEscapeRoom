@@ -453,9 +453,24 @@ export class Game {
       io.hitbox.scale.set(1.0, 0.9, 0.8);
     }
 
-    // No orientation chart (removed per user image): the calibration board
-    // and its examine modal are gone. The station plates above are the
-    // remaining clue path to the dial solution.
+    // The abstract painting by the final machine (user revision): it reads
+    // as decor, not as a hint board - no title, no dial letters. Examining
+    // it only gives an atmospheric description; the station plates above
+    // remain the numeric clue path.
+    const chartIO = this.interactions.register(lab.orientationChart, {
+      verb: 'Examine',
+      label: 'Painting',
+      distance: 2.6,
+      onInteract: () => {
+        this.prompt.hide();
+        this.audio.uiClick();
+        this.messages.flash(
+          'An old abstract canvas. Three rings, each crossed by a single dark stroke. It feels less like art and more like a memory.',
+          { tone: 'good', duration: 4500 }
+        );
+      },
+    });
+    chartIO.hitbox.scale.set(1.5, 1.3, 0.9);
 
     // While a document is open the prompt must not linger under the modal.
     this.readingPanel.onClose = () => this.prompt.hide();
@@ -709,8 +724,8 @@ export class Game {
     if (!changed) return;
     this.audio.machineClick();
 
-    // No "n of 3 aligned" hint - the station plates and the painted
-    // orientation chart are the guides.
+    // No "n of 3 aligned" hint - the station plates and the abstract
+    // painting by the machine are the guides.
     this.messages.flash(
       lab.finalPuzzle.solved
         ? 'All three dials settled. The button glows.'
@@ -936,6 +951,10 @@ export class Game {
     // SceneManager.start(), so a clock started there would include boot time.
     if (!this.runStartedAt) this.runStartedAt = elapsed;
 
+    // Walkthrough fix: the corridor is walkable only while the door is
+    // actually open. Syncing here (before movement) covers both the manual
+    // toggle and any auto-open after the unlock.
+    this.player.setExitOpen(this.laboratory.door.isOpen);
     this.player.update(dt);
     this.laboratory.update(dt, elapsed);
     this.interactions.update(dt, elapsed);

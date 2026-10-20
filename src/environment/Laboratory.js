@@ -302,9 +302,15 @@ export class Laboratory {
     this.finalMachine = new FinalMachine({ materials: this.materials, puzzle: this.finalPuzzle });
     p.add(g, this.finalMachine.group, c, { x: -2.2, z: 5.45, rotY: Math.PI });
 
-    // No orientation chart (removed per user image): the calibration board
-    // and its "Examine: Calibration Chart" modal are gone. The station plates
-    // below remain the only clue path to the dial solution.
+    // The painting by the final machine (user revision): it must read as
+    // ART, not as a hint board. It is an abstract canvas - colour fields,
+    // brush streaks and three ring motifs at scattered heights - whose only
+    // puzzle content is the angle of one dark stroke per ring. No title, no
+    // dial letters, no numbers. It hangs on the south wall just west of the
+    // final machine (machine spans roughly x -3.5..-0.9; the desk is at
+    // x -5.5 mid-room, so x -4.4 is clear).
+    this.orientationChart = this._buildOrientationChart();
+    p.add(g, this.orientationChart, c, { x: -4.4, y: 1.7, z: 5.97, rotY: Math.PI, block: false });
 
     // Station plates: one reading per earlier puzzle, together they form
     // the final machine's dial solution (see FinalMachinePuzzle.js).
@@ -503,9 +509,132 @@ export class Laboratory {
     return g;
   }
 
-  // (The pressure placard, wiring memo and orientation-chart builders were
-  // removed across the feedback revisions: the placard and memo spelled out
-  // their solutions, and the user deleted the chart outright. The rigs now
-  // teach themselves via "n of M aligned" toasts + the panel bar, so nothing
-  // in the room transcribes an answer.)
+  /**
+   * The abstract painting beside the final machine (user revision: it must
+   * read as ART, not as a labelled diagram).
+   *
+   * Composition: aged linen ground, muted colour fields and brush streaks,
+   * three ring motifs scattered at different heights and sizes - Kandinsky
+   * rather than control panel. Each ring is crossed by ONE dark brush
+   * stroke at its working angle (state * 90 deg clockwise from 12 o'clock,
+   * the same convention the physical pointers use, since FinalMachine.eases
+   * rotation.z to -(state * PI)/2 and the dial face is read head-on).
+   *
+   * No title, no dial letters, no numbers, no neat row - an observant
+   * player notices the three strokes rhyme with the machine's dials; a
+   * casual player sees only a painting. The stroke states are derived from
+   * the LIVE puzzle, so the art can never drift from the real solution.
+   */
+  _buildOrientationChart() {
+    const g = new THREE.Group();
+    g.name = 'OrientationChart';
+
+    // Dark frame + backing board.
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.86, 0.05), this.materials.darkMetal);
+    g.add(frame);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 384;
+    const ctx = canvas.getContext('2d');
+
+    // Aged linen ground with muted colour fields - deliberately uneven, so
+    // it reads as painted, not printed.
+    ctx.fillStyle = '#cbb894';
+    ctx.fillRect(0, 0, 512, 384);
+    ctx.fillStyle = '#3d4a63';
+    ctx.fillRect(0, 0, 300, 150);
+    ctx.fillStyle = '#8a4a35';
+    ctx.fillRect(60, 250, 392, 134);
+    ctx.fillStyle = '#6f7a5c';
+    ctx.fillRect(330, 60, 182, 190);
+
+    // Brush streaks from a seeded generator: identical on every load, but
+    // irregular enough to look hand-worked.
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    const palette = ['#3d4a63', '#8a4a35', '#6f7a5c', '#c2a86b', '#54606e', '#7c6a4a'];
+    for (let i = 0; i < 46; i++) {
+      ctx.fillStyle = palette[Math.floor(rnd() * palette.length)];
+      ctx.fillRect(rnd() * 512 - 40, rnd() * 384, 24 + rnd() * 120, 3 + rnd() * 7);
+    }
+
+    // The three ring motifs: different sizes, colours and heights, arranged
+    // as a composition rather than a row. Their stroke angles are the ONLY
+    // puzzle content in the whole painting.
+    this._chartStates = [...this.finalPuzzle.solution];
+    const rings = [
+      { cx: 150, cy: 148, r: 56, color: '#20222b' },
+      { cx: 264, cy: 226, r: 68, color: '#7a2f26' },
+      { cx: 392, cy: 132, r: 50, color: '#1f423c' },
+    ];
+    for (let i = 0; i < rings.length; i++) {
+      const { cx, cy, r, color } = rings[i];
+
+      // Ring.
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 10;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Faint quarter ticks, painted into the motif.
+      ctx.lineWidth = 3;
+      for (let t = 0; t < 4; t++) {
+        const a = (t * Math.PI) / 2;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.sin(a) * (r - 8), cy - Math.cos(a) * (r - 8));
+        ctx.lineTo(cx + Math.sin(a) * (r + 8), cy - Math.cos(a) * (r + 8));
+        ctx.stroke();
+      }
+
+      // ONE dark brush stroke at the working angle (0 = up, clockwise -
+      // the same direction the physical pointer turns as seen head-on).
+      const ang = (this._chartStates[i] * Math.PI) / 2;
+      ctx.strokeStyle = '#171512';
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.sin(ang) * (r - 4), cy - Math.cos(ang) * (r - 4));
+      ctx.stroke();
+
+      // Painted hub dot.
+      ctx.beginPath();
+      ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+      ctx.fillStyle = '#171512';
+      ctx.fill();
+    }
+
+    // Painter's signature squiggle + two hairline age cracks. No words
+    // anywhere on the canvas - the piece must look like decor.
+    ctx.strokeStyle = '#171512';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(430, 352);
+    ctx.lineTo(444, 344);
+    ctx.lineTo(452, 354);
+    ctx.lineTo(462, 343);
+    ctx.lineTo(472, 352);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(80, 20);
+    ctx.lineTo(96, 180);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(300, 380);
+    ctx.lineTo(316, 220);
+    ctx.stroke();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const painting = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.06, 0.76),
+      new THREE.MeshStandardMaterial({ map: texture, roughness: 0.9 })
+    );
+    painting.position.z = 0.028;
+    g.add(painting);
+
+    return g;
+  }
 }
