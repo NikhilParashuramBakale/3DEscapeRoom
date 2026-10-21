@@ -19,6 +19,11 @@ export class GameState {
     this.doorUnlocked = false;
     this.escaped = false;
 
+    // Room 2 (the code chamber reached through the exit corridor).
+    this.inRoom2 = false;          // the player has walked past the exit door
+    this.cppTerminalSolved = false; // the C++ terminal was answered correctly
+    this.certificateTaken = false;  // the clearance certificate was collected
+
     this._listeners = new Map();
   }
 

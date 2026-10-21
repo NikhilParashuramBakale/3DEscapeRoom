@@ -170,5 +170,8 @@ export const OBJECTIVES = [
   { flag: 'valvePuzzleSolved', text: 'Balance the pressure valves on the east wall.' },
   { flag: 'machinePuzzleSolved', text: 'Start the final machine on the south wall.' },
   { flag: 'doorUnlocked', text: 'Unlock the exit door and escape.' },
+  { flag: 'inRoom2', text: 'Enter the code chamber beyond the corridor.' },
+  { flag: 'cppTerminalSolved', text: 'Answer the C++ terminal diagnostic correctly.' },
+  { flag: 'certificateTaken', text: 'Take the clearance certificate from the chamber.' },
   { flag: 'escaped', text: '', doneText: 'Escaped.' },
 ];

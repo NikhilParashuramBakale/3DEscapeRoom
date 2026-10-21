@@ -9,11 +9,19 @@ import { InteractionManager } from '../interaction/InteractionManager.js';
 import { ReadingPanel } from '../ui/ReadingPanel.js';
 import { GameMessages } from '../ui/GameMessages.js';
 import { KeypadPanel } from '../ui/KeypadPanel.js';
+import { TerminalPanel } from '../ui/TerminalPanel.js';
 import { EndScreen } from '../ui/EndScreen.js';
 import { OBJECTIVES, countObjectivesDone } from '../ui/GameMessages.js';
 import { AudioManager } from '../audio/AudioManager.js';
 import { SettingsPanel, loadSettings, saveSettings } from '../ui/SettingsPanel.js';
 import { CODE_SHEET_LINES, CODE_SHEET_TITLE, CODE_SHEET_HINT } from '../puzzles/CodeSheet.js';
+import {
+  CPP_TERMINAL_TITLE,
+  CPP_TERMINAL_LINES,
+  CPP_TERMINAL_PROMPT,
+  CPP_TERMINAL_OPTIONS,
+  checkCppTerminalAnswer,
+} from '../puzzles/CppTerminal.js';
 
 /**
  * Puzzle flags that gate the exit door - every puzzle in the game.
@@ -65,6 +73,11 @@ export class Game {
 
     // Numeric keypad for the drawer lock (Phase 7).
     this.keypadPanel = new KeypadPanel(document.getElementById('app'), {
+      player: this.player,
+    });
+
+    // Room 2 C++ terminal diagnostic (Phase 27).
+    this.terminalPanel = new TerminalPanel(document.getElementById('app'), {
       player: this.player,
     });
 
@@ -263,6 +276,12 @@ export class Game {
     this.player.setExitZone(this.laboratory.corridorBounds);
     this.player.setColliders(this.laboratory.colliders);
     this.player.setSpawn(1.5, 4.2);
+
+    // Room 2 chamber zone: gated on the exit door being open, so the player
+    // cannot walk into the code chamber before the lab systems are online.
+    this.player.addZone(this.laboratory.room2Bounds, () =>
+      this.gameState.doorUnlocked
+    );
 
     this._registerInteractions();
 
@@ -472,6 +491,25 @@ export class Game {
     });
     chartIO.hitbox.scale.set(1.5, 1.3, 0.9);
 
+    // Room 2 C++ terminal (only reachable once the exit door is unlocked).
+    const terminalIO = this.interactions.register(lab.terminalProxy, {
+      verb: 'Use',
+      label: 'Terminal',
+      distance: 2.4,
+      onInteract: () => this._openTerminal(),
+    });
+    terminalIO.hitbox.scale.set(1.4, 1.4, 1.4);
+
+    // Room 2 clearance certificate pickup (only reachable once the door opens).
+    this._certInteraction = this.interactions.register(lab.certificateProxy, {
+      verb: 'Take',
+      label: 'Certificate',
+      distance: 1.8,
+      onInteract: () => this._takeCertificate(),
+    });
+    this._certInteraction.hitbox.scale.set(1.6, 1.6, 1.6);
+    this._certInteraction.setEnabled(false);
+
     // While a document is open the prompt must not linger under the modal.
     this.readingPanel.onClose = () => this.prompt.hide();
     // Stale toasts would otherwise sit on top of the modal.
@@ -580,6 +618,67 @@ export class Game {
     this._keyInteraction.setEnabled(false);
     this.audio.pickup();
     this.messages.flash('A small brass key.', { tone: 'good' });
+  }
+
+  /** Open the Room 2 C++ terminal diagnostic panel. */
+  _openTerminal() {
+    if (this.gameState.cppTerminalSolved) {
+      this.messages.flash('The terminal reads: DIAGNOSTIC PASSED. CLEARANCE GRANTED.', { tone: 'good' });
+      return;
+    }
+
+    this.prompt.hide();
+    this.messages.clear();
+    this.terminalPanel.open({
+      title: CPP_TERMINAL_TITLE,
+      snippet: CPP_TERMINAL_LINES,
+      prompt: CPP_TERMINAL_PROMPT,
+      options: CPP_TERMINAL_OPTIONS,
+    });
+
+    this.terminalPanel.onSubmit = (optionId) => this._submitTerminalAnswer(optionId);
+    this.terminalPanel.onClose = () => this.prompt.hide();
+  }
+
+  /** Validate the terminal answer. Correct -> cppTerminalSolved + certificate unlock. */
+  _submitTerminalAnswer(optionId) {
+    const result = checkCppTerminalAnswer(optionId);
+
+    if (!result.correct) {
+      this.audio.keypadReject();
+      this.terminalPanel.statusEl.textContent = 'INCORRECT. Recompile and retry.';
+      this.messages.flash('Wrong answer. Check the array indices.', { tone: 'bad' });
+      // Allow another attempt: clear the submitted lock so the player can re-open.
+      this.terminalPanel.reset();
+      return;
+    }
+
+    this.gameState.set('cppTerminalSolved', true);
+    this.audio.keypadAccept();
+    this.messages.flash('Diagnostic passed. Clearance certificate unlocked.', { tone: 'good' });
+
+    // Unlock the certificate pickup now that the terminal is solved.
+    if (this._certInteraction) this._certInteraction.setEnabled(true);
+
+    this.terminalPanel.close();
+  }
+
+  /** Take the clearance certificate from the Room 2 stand. */
+  _takeCertificate() {
+    if (this.gameState.certificateTaken) return;
+    if (!this.gameState.cppTerminalSolved) {
+      this.audio.keypadReject();
+      this.messages.flash('The certificate is locked behind the terminal diagnostic.', { tone: 'bad' });
+      return;
+    }
+
+    this.gameState.set('certificateTaken', true);
+    this.laboratory.certificateVisible = false;
+    const certMesh = this.laboratory.certificateGroup?.userData?.certificate;
+    if (certMesh) certMesh.visible = false;
+
+    this.audio.pickup();
+    this.messages.flash('Clearance certificate acquired.', { tone: 'good' });
   }
 
   /**
@@ -919,7 +1018,7 @@ export class Game {
 
   /** Detect the player leaving the room through the open door. */
   _checkEscape() {
-    if (this.gameState.escaped) return;
+    if (this.gameState.escaped || this._escaping) return;
 
     const lab = this.laboratory;
     const doorOpen = lab.door.isOpen;
@@ -927,21 +1026,26 @@ export class Game {
     const throughDoorway = this.player.object.position.z < -5.6 && this.player.object.position.x < 0.9 &&
       this.player.object.position.x > -0.9;
 
-    if (!doorOpen || !throughDoorway) return;
+    // Room 2 gate: the corridor escape only counts once the terminal is
+    // solved and the clearance certificate is in hand.
+    if (!this.gameState.cppTerminalSolved || !this.gameState.certificateTaken) return;
 
-    this.gameState.set('escaped', true);
+    this._escaping = true;
+    setTimeout(() => {
+      this.gameState.set('escaped', true);
 
-    // Freeze the clock BEFORE showing the screen, otherwise the last few
-    // frames of walking keep counting and the displayed time drifts.
-    this.runSeconds = Math.max(0, this._elapsed - this.runStartedAt);
-    this.messages.clear();
-    this.audio.escape();
-    this.endScreen.show({
-      seconds: this.runSeconds,
-      gearTurns: this.gearTurns,
-      objectivesDone: countObjectivesDone(this.gameState),
-      objectivesTotal: OBJECTIVES.length,
-    });
+      // Freeze the clock BEFORE showing the screen, otherwise the last few
+      // frames of walking keep counting and the displayed time drifts.
+      this.runSeconds = Math.max(0, this._elapsed - this.runStartedAt);
+      this.messages.clear();
+      this.audio.escape();
+      this.endScreen.show({
+        seconds: this.runSeconds,
+        gearTurns: this.gearTurns,
+        objectivesDone: countObjectivesDone(this.gameState),
+        objectivesTotal: OBJECTIVES.length,
+      });
+    }, 1200);
   }
 
   _update(dt, elapsed) {
@@ -956,12 +1060,24 @@ export class Game {
     // toggle and any auto-open after the unlock.
     this.player.setExitOpen(this.laboratory.door.isOpen);
     this.player.update(dt);
+
+    // Track Room 2 entry: once the player walks into the code chamber,
+    // the inRoom2 flag flips and stays true.
+    const p = this.player.object.position;
+    const r2 = this.laboratory.room2Bounds;
+    if (!this.gameState.inRoom2 &&
+        p.x >= r2.minX && p.x <= r2.maxX &&
+        p.z >= r2.minZ && p.z <= -13.2) {
+      this.gameState.set('inRoom2', true);
+      this.messages.flash('You are now in the code chamber.', { tone: 'info' });
+    }
+
     this.laboratory.update(dt, elapsed);
     this.interactions.update(dt, elapsed);
     this.messages.update(dt);
     this._checkEscape();
     // A modal has focus: clear the prompt/crosshair so nothing competes.
-    if (this.readingPanel.isOpen || this.keypadPanel.isOpen || this.settingsPanel.isOpen) {
+    if (this.readingPanel.isOpen || this.keypadPanel.isOpen || this.settingsPanel.isOpen || this.terminalPanel.isOpen) {
       this.prompt.hide();
       this.crosshair.setActive(false);
     }

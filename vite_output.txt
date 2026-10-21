@@ -1,0 +1,14 @@
+Re-optimizing dependencies because vite config has changed
+Port 5173 is in use, trying another one...
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m423[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5174[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m8:39:58 PM[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2mG:/7th_semProjects/CGVR/Threejs/forgotten-lab-3d/src/ui/TerminalPanel.js[22m
+[2m8:40:00 PM[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2mG:/7th_semProjects/CGVR/Threejs/forgotten-lab-3d/src/core/Game.js[22m
+[2m8:40:03 PM[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2mG:/7th_semProjects/CGVR/Threejs/forgotten-lab-3d/src/environment/Laboratory.js[22m
+[2m9:09:28 PM[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2mG:/7th_semProjects/CGVR/Threejs/forgotten-lab-3d/src/environment/Laboratory.js[22m
+[2m9:10:14 PM[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2mG:/7th_semProjects/CGVR/Threejs/forgotten-lab-3d/src/environment/Laboratory.js[22m
+[2m9:10:38 PM[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2mG:/7th_semProjects/CGVR/Threejs/forgotten-lab-3d/src/core/Game.js[22m

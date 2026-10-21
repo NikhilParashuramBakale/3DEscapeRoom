@@ -26,6 +26,10 @@ export class PlayerController {
     this.colliders = [];
     this.bounds = { minX: -8, maxX: 8, minZ: -6, maxZ: 6 };
     this.exitZone = null;      // optional walkable region outside the room
+    // Extra walkable regions (Room 2 corridor + chamber). Each entry is
+    // { bounds, enabled } - `enabled` may be a boolean or a function, so a
+    // zone can be gated on a puzzle flag without rebuilding the list.
+    this.extraZones = [];
     // Walkthrough fix: the corridor is only legal while the door is actually
     // swung open. The leaf has no collider, so without this gate the doorway
     // gap in the wall is a hole you can walk through with the door shut.
@@ -88,6 +92,28 @@ export class PlayerController {
     this.exitOpen = !!open;
   }
 
+  /**
+   * Add an extra walkable region (Room 2's corridor and chamber).
+   *
+   * @param {{minX:number,maxX:number,minZ:number,maxZ:number}} bounds
+   * @param {boolean|(() => boolean)} [enabled] gate for the zone
+   */
+  addZone(bounds, enabled = true) {
+    const zone = { bounds, enabled };
+    this.extraZones.push(zone);
+    return zone;
+  }
+
+  /** Remove every extra zone (used when resetting to Room 1). */
+  clearZones() {
+    this.extraZones = [];
+  }
+
+  /** True if a zone's gate is currently satisfied. */
+  _zoneEnabled(zone) {
+    return typeof zone.enabled === 'function' ? !!zone.enabled() : !!zone.enabled;
+  }
+
   setColliders(colliders) {
     this.colliders = colliders;
   }
@@ -106,9 +132,18 @@ export class PlayerController {
     // walk out through a closed door.
     const insideExit =
       this.exitZone && this.exitOpen ? this._inBox(this.exitZone, x, z) : false;
-    // Legal in either region; the overlap through the OPEN doorway lets you
+    // Extra zones (Room 2) are legal only while their gate is satisfied.
+    let insideExtra = false;
+    for (const zone of this.extraZones) {
+      if (!this._zoneEnabled(zone)) continue;
+      if (this._inBox(zone.bounds, x, z)) {
+        insideExtra = true;
+        break;
+      }
+    }
+    // Legal in any region; the overlap through the OPEN doorway lets you
     // step out without a hard seam.
-    if (!insideRoom && !insideExit) return true;
+    if (!insideRoom && !insideExit && !insideExtra) return true;
 
     const r = this.radius;
     for (const c of this.colliders) {

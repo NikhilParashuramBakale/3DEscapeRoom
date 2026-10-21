@@ -14,6 +14,12 @@ import { ValvePuzzle } from '../puzzles/ValvePuzzle.js';
 import { ValveRig } from './ValveRig.js';
 import { FinalMachinePuzzle } from '../puzzles/FinalMachinePuzzle.js';
 import { FinalMachine } from './FinalMachine.js';
+import {
+  CPP_TERMINAL_TITLE,
+  CPP_TERMINAL_LINES,
+  CPP_TERMINAL_PROMPT,
+  CPP_TERMINAL_OPTIONS,
+} from '../puzzles/CppTerminal.js';
 
 /**
  * Laboratory - builds the whole environment shell and exposes:
@@ -63,6 +69,8 @@ export class Laboratory {
 
     // Lighting states are configured inside Lighting; just start dim.
     this.lighting.setDormant();
+
+    // Terminal proxy (interaction target) - set by _buildRoom2.
   }
 
   // ------------------------------------------------------------------
@@ -402,11 +410,28 @@ export class Laboratory {
       g.add(wall);
     }
 
-    // End cap, so the corridor reads as a dead end rather than the void.
-    const endWall = new THREE.Mesh(new THREE.PlaneGeometry(width, h), m.wall);
-    endWall.position.set(0, h / 2, z0 - length);
-    endWall.receiveShadow = true;
-    g.add(endWall);
+    // Archway portal leading into Room 2 (the code chamber).
+    // Solid jamb posts (left x: -1.6..-0.8, right x: 0.8..1.6) and lintel above (y: 2.2..2.6)
+    // frame a clean 1.6m wide doorway opening into the chamber.
+    const postW = 0.8;
+    const archH = 2.2;
+    const lintelH = h - archH;
+    const archZ = z0 - length;
+
+    const archLeft = new THREE.Mesh(new THREE.BoxGeometry(postW, h, 0.16), m.wall);
+    archLeft.position.set(-width / 2 + postW / 2, h / 2, archZ);
+    archLeft.receiveShadow = true;
+    g.add(archLeft);
+
+    const archRight = new THREE.Mesh(new THREE.BoxGeometry(postW, h, 0.16), m.wall);
+    archRight.position.set(width / 2 - postW / 2, h / 2, archZ);
+    archRight.receiveShadow = true;
+    g.add(archRight);
+
+    const archLintel = new THREE.Mesh(new THREE.BoxGeometry(1.6, lintelH, 0.16), m.wall);
+    archLintel.position.set(0, archH + lintelH / 2, archZ);
+    archLintel.receiveShadow = true;
+    g.add(archLintel);
 
     // Real ceiling lamps with actual PointLights. An emissive box alone only
     // LOOKS bright - it casts no light, which left the corridor ceiling
@@ -445,9 +470,186 @@ export class Laboratory {
     this.corridorBounds = {
       minX: -clear,
       maxX: clear,
-      minZ: z0 - length + 0.4,
+      minZ: z0 - length + 0.3,
       maxZ: z0 + 1.6,
     };
+
+    // Room 2 chamber beyond the corridor doorway.
+    this._buildRoom2();
+  }
+
+  /** Build the Room 2 code chamber past the corridor's doorway arch. */
+  _buildRoom2() {
+    const m = this.materials;
+    const g = new THREE.Group();
+    g.name = 'Room2';
+    this.group.add(g);
+    this.room2 = g;
+
+    const z0 = -ROOM.depth / 2 - ROOM.wallThickness; // outer face of north wall (-6.3)
+    const archZ = z0 - 7.0; // -13.3 (entrance arch from corridor)
+    const len = 3.4;
+    const zc = archZ - len / 2; // -15.0
+    const w = 3.2;
+    const h = 2.6;
+
+    // Floor, flush with corridor floor at archZ (-13.3).
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, len), m.floor);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(0, 0, zc);
+    floor.receiveShadow = true;
+    g.add(floor);
+
+    // Ceiling.
+    const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(w, len), m.ceiling);
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.position.set(0, h, zc);
+    g.add(ceiling);
+
+    // Side walls.
+    for (const side of [-1, 1]) {
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(len, h), m.wall);
+      wall.position.set(side * (w / 2), h / 2, zc);
+      wall.rotation.y = -side * Math.PI / 2;
+      wall.receiveShadow = true;
+      g.add(wall);
+    }
+
+    // Far wall (chamber end at z = -16.7).
+    const endWall = new THREE.Mesh(new THREE.PlaneGeometry(w, h), m.wall);
+    endWall.position.set(0, h / 2, zc - len / 2);
+    endWall.receiveShadow = true;
+    g.add(endWall);
+
+    // Ceiling lamp.
+    const fixture = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.5), m.lampOn);
+    fixture.position.set(0, h - 0.06, zc);
+    g.add(fixture);
+    const light = new THREE.PointLight(0xbfe0ff, 12, 8, 1.6);
+    light.position.set(0, h - 0.2, zc);
+    g.add(light);
+    this.lighting.registerAuxLight(light, 12, { dormantScale: 0.3, activeScale: 1 });
+
+    // Terminal desk against the far wall.
+    this.terminalGroup = this._buildTerminalDesk();
+    this.terminalGroup.position.set(0, 0, zc - len / 2 + 0.55);
+    g.add(this.terminalGroup);
+
+    // Terminal proxy (invisible interaction target in front of the desk).
+    this.terminalProxy = new THREE.Mesh(
+      new THREE.BoxGeometry(1.4, 1.0, 0.1),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 })
+    );
+    this.terminalProxy.name = 'TerminalProxy';
+    this.terminalProxy.position.set(0, 0.5, zc - len / 2 + 1.3);
+    g.add(this.terminalProxy);
+
+    // Certificate stand against the left wall.
+    this.certificateGroup = this._buildCertificateStand();
+    this.certificateGroup.position.set(-w / 2 + 0.55, 0, zc);
+    g.add(this.certificateGroup);
+
+    // Certificate proxy (invisible pickup target).
+    this.certificateProxy = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, 0.4, 0.4),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 })
+    );
+    this.certificateProxy.name = 'CertificateProxy';
+    this.certificateProxy.position.set(-w / 2 + 0.55, 0.7, zc);
+    g.add(this.certificateProxy);
+
+    // Chamber bounds: allows moving to stand and terminal, and smoothly overlaps the corridor.
+    this.room2Bounds = {
+      minX: -1.2,
+      maxX: 1.2,
+      minZ: -15.5,
+      maxZ: -12.6,
+    };
+  }
+
+  /** Build a desk with a terminal screen (C++ diagnostic). */
+  _buildTerminalDesk() {
+    const g = new THREE.Group();
+    g.name = 'TerminalDesk';
+
+    // Desk top.
+    const top = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 0.05, 0.9),
+      this.materials.darkMetal
+    );
+    top.position.y = 0.8;
+    g.add(top);
+
+    // Desk legs.
+    for (const x of [-0.65, 0.65]) {
+      const leg = new THREE.Mesh(
+        new THREE.BoxGeometry(0.06, 0.8, 0.06),
+        this.materials.darkMetal
+      );
+      leg.position.set(x, 0.4, 0);
+      g.add(leg);
+    }
+
+    // Terminal screen (emissive, shows the snippet).
+    const screen = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.9, 0.55),
+      new THREE.MeshBasicMaterial({ color: 0x0a0e14 })
+    );
+    screen.position.set(0, 1.15, 0.456);
+    g.add(screen);
+
+    // Glow behind the screen.
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.0, 0.65),
+      new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.15 })
+    );
+    glow.position.set(0, 1.15, 0.45);
+    g.add(glow);
+
+    // Keyboard.
+    const kb = new THREE.Mesh(
+      new THREE.BoxGeometry(0.7, 0.02, 0.3),
+      this.materials.darkMetal
+    );
+    kb.position.set(0, 0.83, 0.2);
+    g.add(kb);
+
+    return g;
+  }
+
+  /** Build a certificate stand (clearance certificate on a pedestal). */
+  _buildCertificateStand() {
+    const g = new THREE.Group();
+    g.name = 'CertificateStand';
+
+    // Pedestal.
+    const base = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.04, 0.5),
+      this.materials.darkMetal
+    );
+    base.position.y = 0.8;
+    g.add(base);
+
+    const post = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.75, 0.06),
+      this.materials.darkMetal
+    );
+    post.position.set(0, 0.425, 0);
+    g.add(post);
+
+    // Certificate (paper, slightly angled).
+    const cert = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.35, 0.45),
+      new THREE.MeshBasicMaterial({ color: 0xf0e6d2 })
+    );
+    cert.position.set(0, 1.12, 0.256);
+    cert.rotation.x = -0.25;
+    g.add(cert);
+
+    // Certificate user data so Game can find it.
+    g.userData.certificate = cert;
+
+    return g;
   }
 
   update(dt) {
