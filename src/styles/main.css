@@ -834,6 +834,17 @@ body,
 }
 
 /* ---------- Terminal panel (Room 2 C++ diagnostic) ---------- */
+#terminal-panel {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(3, 6, 9, 0.72);
+  z-index: 9;
+}
+
 #terminal-panel .terminal-card {
   max-width: min(700px, 92vw);
   max-height: 88vh;
@@ -922,8 +933,33 @@ body,
 
 #terminal-panel .terminal-status {
   margin: 0;
+  font-size: 0.9rem;
+  min-height: 1.4em;
+  font-family: Consolas, 'Courier New', monospace;
+  letter-spacing: 0.05em;
+}
+
+#terminal-panel .terminal-status.error {
+  color: #ff6b6b;
+  font-weight: bold;
+}
+
+#terminal-panel .terminal-status.success {
+  color: #00ff88;
+  font-weight: bold;
+}
+
+#terminal-panel .terminal-hint {
+  margin: 0;
   font-size: 0.85rem;
-  min-height: 1.2em;
+  color: #7ff0d8;
+  font-family: Consolas, 'Courier New', monospace;
+  font-style: italic;
+  background: rgba(127, 240, 216, 0.08);
+  border-left: 3px solid #7ff0d8;
+  padding: 8px 12px;
+  border-radius: 4px;
+  display: none;
 }
 
 

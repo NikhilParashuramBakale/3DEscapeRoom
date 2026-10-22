@@ -191,7 +191,15 @@ export function createMaterials() {
 
   return {
     floor: new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9, metalness: 0.05 }),
-    wall: new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.95, metalness: 0.0 }),
+    wall: new THREE.MeshStandardMaterial({
+      map: wallTex,
+      roughness: 0.95,
+      metalness: 0.0,
+      // Walls include both solid box panels and single-plane room sections.
+      // Render their back faces too so the connected shell never disappears
+      // when viewed from the corridor/exterior side.
+      side: THREE.DoubleSide,
+    }),
     ceiling: new THREE.MeshStandardMaterial({ map: ceilTex, roughness: 1.0, metalness: 0.0 }),
     metal: new THREE.MeshStandardMaterial({
       map: metalTex,

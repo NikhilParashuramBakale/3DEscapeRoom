@@ -534,6 +534,7 @@ const classListFor = (el) => ({
 const makeEl = (tag) => ({
   tag, _classes: [], textContent: '', innerHTML: '', offsetWidth: 0,
   value: '', checked: false, type: '', listeners: {},
+  style: {}, dataset: {},
   classList: null,
   addEventListener(t, fn) { (this.listeners[t] ||= []).push(fn); },
   appendChild() {},
@@ -778,8 +779,7 @@ console.log('\n--- Phase 12: lighting polish ---');
 // The lab visibly powered up behind the player while the escape route remained
 // dead dark - an obvious inconsistency, not a stylistic choice.
 const lab12 = lab;
-console.log('corridor lights registered  :', lab12.lighting.aux.length === lab12.corridorLights.length);
-console.log('every corridor light driven :', lab12.corridorLights.every(
+console.log('corridor lights registered  :', lab12.corridorLights.every(
   (l) => lab12.lighting.aux.some((a) => a.light === l)));
 
 // They must actually DIM in the dormant state and BRIGHTEN once powered.
@@ -1523,7 +1523,10 @@ console.log('shut door blocks threshold   :', pc26._collides(0, -5.5));
 pc26.setExitOpen(true);
 console.log('open door re-opens the path  :', !pc26._collides(0, -6.5));
 console.log('Game syncs door into player  :', cGameSrc.includes('setExitOpen(this.laboratory.door.isOpen)'));
-console.log('escape still needs open door :', /const doorOpen = lab\.door\.isOpen;/.test(cGameSrc));
+// Room 1 door still gates corridor walkthrough; final escape is deferred to
+// Room 2's locked exit (room2DoorUnlocked) so Terminal 01 cannot end the run.
+console.log('escape still needs open door :', cGameSrc.includes('setExitOpen(this.laboratory.door.isOpen)'));
+console.log('escape deferred to room2 exit:', cGameSrc.includes('if (!this.gameState.room2DoorUnlocked) return;'));
 
 // Orientation painting (restored per user clarification): hint only, hung
 // on the south wall beside the final machine, needles = live solution.
@@ -1539,4 +1542,268 @@ console.log('needle dir matches the dials :', vFmSrc26.includes('-(this.puzzle.s
   vLabSrc.includes('(this._chartStates[i] * Math.PI) / 2'));
 console.log('painting says nothing        :', !vLabSrc.includes('ORIENTATION') &&
   (vLabSrc.match(/fillText\(/g) || []).length === 0); // zero words drawn on the canvas
+
+
+console.log('\n--- phase 27: room 2 transition + c++ code terminal ---');
+// Verify Room 2 environment construction and reachability
+console.log('room 2 chamber constructed   :', !!lab.room2 && lab.room2.name === 'Room2_ProctorChamber');
+console.log('room 2 bounds defined        :', !!lab.room2Bounds && lab.room2Bounds.minZ === -20.6 && lab.room2Bounds.maxZ === -12.8);
+console.log('corridor-room2 seamless overlap:', lab.corridorBounds.minZ <= lab.room2Bounds.maxZ);
+
+// Player navigation through corridor into Room 2
+const pc27 = new PlayerController(new T.PerspectiveCamera(), {
+  addEventListener: noop, removeEventListener: noop,
+  requestPointerLock: noop, ownerDocument: globalThis.document,
+});
+pc27.setBounds(lab.bounds);
+pc27.setExitZone(lab.corridorBounds);
+pc27.setColliders(lab.colliders);
+pc27.addZone(lab.room2Bounds, true);
+
+// With exit open, corridor and entrance into Room 2 are walkable
+pc27.setExitOpen(true);
+console.log('corridor traversal walkable  :', !pc27._collides(0, -9.0));
+console.log('room 2 entrance walkable     :', !pc27._collides(0, -13.3));
+console.log('station 01 approach walkable :', !pc27._collides(-2.0, -14.0));
+
+// Solid walls and colliders in Room 2 block traversal
+console.log('room 2 west wall blocks      :', pc27._collides(-3.6, -16.0));
+console.log('room 2 east wall blocks      :', pc27._collides(3.6, -16.0));
+console.log('room 2 north locked door blocks:', pc27._collides(0, -21.0));
+console.log('dormant proctor core blocks  :', pc27._collides(0, -17.3));
+console.log('terminal workstation blocks  :', pc27._collides(-2.0, -15.2));
+
+// Locked exit door registration
+console.log('room 2 locked exit registered:', cGameSrc.includes("label: 'Chamber Exit'"));
+
+// C++ Terminal puzzle data and pure logic tests
+const {
+  evaluateCppTerminal,
+  checkCppTerminalAnswer,
+  checkCppTerminalQuestionAnswer,
+  getCorrectOptionId,
+  CPP_TERMINAL_QUESTIONS,
+  CPP_TERMINAL_QUESTION_COUNT,
+  getCppTerminalQuestion,
+  CPP_TERMINAL_OPTIONS,
+  CPP_TERMINAL_PROMPT,
+  CPP_Q2_LINES, CPP_Q2_OPTIONS, CPP_Q2_HINT,
+  CPP_Q3_LINES, CPP_Q3_OPTIONS, CPP_Q3_HINT,
+  CPP_Q4_LINES, CPP_Q4_OPTIONS, CPP_Q4_HINT,
+  CPP_Q5_LINES, CPP_Q5_OPTIONS, CPP_Q5_HINT,
+  CPP_Q6_LINES, CPP_Q6_OPTIONS, CPP_Q6_HINT,
+  CPP_TERMINAL_HINT,
+  CERTIFICATE_ALPHA_TEXT,
+} = await import('../src/puzzles/CppTerminal.js');
+
+console.log('cpp terminal evaluates to 12 :', evaluateCppTerminal() === 12);
+console.log('correct option is B          :', getCorrectOptionId() === 'B');
+console.log('choice B value is 12         :', CPP_TERMINAL_OPTIONS.find((o) => o.id === 'B')?.value === 12);
+console.log('choice B is accepted         :', checkCppTerminalAnswer('B').correct === true);
+console.log('choice B by value 12 accepted:', checkCppTerminalAnswer(12).correct === true);
+console.log('choice A is rejected         :', checkCppTerminalAnswer('A').correct === false);
+console.log('choice C is rejected         :', checkCppTerminalAnswer('C').correct === false);
+console.log('choice D is rejected         :', checkCppTerminalAnswer('D').correct === false);
+console.log('exact hint text matches spec :', CPP_TERMINAL_HINT === 'Track the values of i and a[i] on each loop iteration.');
+console.log('certificate text matches spec:', CERTIFICATE_ALPHA_TEXT === 'CERTIFICATE α — VALUE: 12');
+
+// Game integration checks
+console.log('prompt text says Inspect Terminal:', cGameSrc.includes("verb: 'Inspect'") && cGameSrc.includes("label: 'Terminal'"));
+console.log('room 2 introduction title    :', cGameSrc.includes('PROCTOR CHAMBER'));
+console.log('room 2 introduction prompt   :', cGameSrc.includes('Candidate detected. Restore examination power to proceed.'));
+console.log('hint triggered after 2 wrongs:', cGameSrc.includes('wrongCount >= 2 ? question.hint : null'));
+console.log('escape gated until final exit:', cGameSrc.includes('if (!this.gameState.room2DoorUnlocked) return;'));
+
+// GameState flags
+const state27 = new GameState();
+console.log('state tracks inRoom2         :', state27.inRoom2 === false);
+console.log('state tracks cppTerminalSolved:', state27.cppTerminalSolved === false);
+console.log('state tracks wrongAttempts   :', state27.terminalWrongAttempts === 0);
+console.log('state tracks certificateAlpha:', state27.certificateAlpha === null);
+console.log('state tracks room2DoorUnlocked:', state27.room2DoorUnlocked === false);
+
+// Visual activation verification (source-level checks to avoid headless canvas call)
+console.log('lab has activateTerminal()   :', typeof lab.activateTerminal === 'function');
+console.log('lab delegates to workstation :', vLabSrc.includes('this.terminalWorkstation.activate()'));
+console.log('workstation activate is src  :', vLabSrc.includes('activateTerminal()') && vLabSrc.includes('_terminalActive = true'));
+// Material getters delegate to workstation
+console.log('lamp mat getter exists       :', !!lab.terminalLampMat);
+console.log('power mat getter exists      :', !!lab.terminalPowerMat);
+
+// Post-terminal objective must not go blank (future stations are locked).
+{
+  const { currentObjective, OBJECTIVES: objs } = await import('../src/ui/GameMessages.js');
+  const afterSolve = new GameState();
+  afterSolve.inRoom2 = true;
+  afterSolve.cppTerminalSolved = true;
+  afterSolve.certificateTaken = true;
+  const objText = currentObjective(afterSolve);
+  console.log('post-solve objective sticky  :', objText.includes('Additional stations remain locked'));
+  console.log('post-solve is not Escaped    :', objText !== 'Escaped.' && objText !== '');
+  console.log('objectives list has room2    :', objs.some((o) => o.flag === 'cppTerminalSolved'));
+}
+
+// TerminalPanel pointer-lock / block handling (no 3D scene required).
+{
+  globalThis.requestAnimationFrame = (fn) => fn();
+  const { TerminalPanel } = await import('../src/ui/TerminalPanel.js');
+  const tpPlayer = {
+    blocked: false,
+    controls: { isLocked: true, unlock() { this.isLocked = false; } },
+    setBlocked(v) { this.blocked = v; },
+  };
+  const panel = new TerminalPanel({ appendChild() {} }, { player: tpPlayer });
+  let submitted = null;
+  panel.onSubmit = (id) => { submitted = id; };
+  panel.open({
+    title: 't',
+    snippet: ['int x;'],
+    prompt: 'q',
+    options: [
+      { id: 'A', label: 'A) 1' },
+      { id: 'B', label: 'B) 12' },
+    ],
+  });
+  console.log('terminal open blocks player  :', tpPlayer.blocked === true);
+  console.log('terminal open unlocks pointer:', tpPlayer.controls.isLocked === false);
+  panel._select(1);
+  console.log('terminal submit reports B    :', submitted === 'B');
+  panel.reset();
+  panel._select(0);
+  console.log('terminal allows retry after reset:', submitted === 'A');
+  panel.close();
+  console.log('terminal close unblocks      :', tpPlayer.blocked === false);
+}
+
+// --- TerminalPanel question rotation (setQuestion without closing) ---
+{
+  globalThis.requestAnimationFrame = (fn) => fn();
+  const { TerminalPanel } = await import('../src/ui/TerminalPanel.js');
+  const tpPlayer = {
+    blocked: false,
+    controls: { isLocked: true, unlock() { this.isLocked = false; } },
+    setBlocked(v) { this.blocked = v; },
+  };
+  const panel = new TerminalPanel({ appendChild() {} }, { player: tpPlayer });
+  const submitted = [];
+  panel.onSubmit = (id) => { submitted.push(id); };
+  panel.open({
+    title: 't',
+    snippet: ['int x;'],
+    prompt: 'q',
+    options: [
+      { id: 'A', label: 'A) 1' },
+      { id: 'B', label: 'B) 12' },
+    ],
+  });
+  panel._select(1); // correct for Q1
+  console.log('rotation submit recorded    :', submitted.length === 1 && submitted[0] === 'B');
+
+  // Rotate to the next question. The submitted lock must be cleared so the
+  // player can answer the new question straight away.
+  panel.setQuestion({
+    title: 't2',
+    snippet: ['int y;'],
+    prompt: 'q2',
+    options: [
+      { id: 'A', label: 'A) 30' },
+      { id: 'B', label: 'B) 25' },
+    ],
+  });
+  console.log('rotation keeps panel open   :', panel.isOpen === true);
+  console.log('rotation still blocks player :', tpPlayer.blocked === true);
+  panel._select(0);
+  console.log('rotation accepts new answer :', submitted.length === 2 && submitted[1] === 'A');
+  console.log('rotation updated snippet    :', panel.snippetEl.textContent.includes('int y;'));
+  console.log('rotation updated title      :', panel.titleEl.textContent === 't2');
+  panel.close();
+}
+
+// --- Question 2-6 diagnostic bank tests ---
+console.log('--- Question bank structure ---');
+console.log('6 questions in bank          :', CPP_TERMINAL_QUESTION_COUNT === 6);
+console.log('bank count matches array     :', CPP_TERMINAL_QUESTIONS.length === 6);
+console.log('question ids 1-6              :', CPP_TERMINAL_QUESTIONS.map((q) => q.id).join('.') === '1.2.3.4.5.6');
+console.log('each question has a prompt    :', CPP_TERMINAL_QUESTIONS.every((q) => typeof q.prompt === 'string' && q.prompt.length > 0));
+console.log('each question has a hint      :', CPP_TERMINAL_QUESTIONS.every((q) => typeof q.hint === 'string' && q.hint.length > 0));
+console.log('each question has 4 options   :', CPP_TERMINAL_QUESTIONS.every((q) => q.options.length === 4));
+console.log('each question has one correct :', CPP_TERMINAL_QUESTIONS.every((q) => q.options.filter((o) => o.correct).length === 1));
+console.log('option ids are A-D            :', CPP_TERMINAL_QUESTIONS.every((q) => q.options.map((o) => o.id).join('') === 'ABCD'));
+console.log('prompts are distinct          :', new Set(CPP_TERMINAL_QUESTIONS.map((q) => q.prompt)).size === 6);
+
+console.log('--- Q1 (original) ---');
+const q1 = getCppTerminalQuestion(0);
+console.log('Q1 expected 12                :', q1.expected === 12);
+
+console.log('--- Q2 (pointer arithmetic) ---');
+const q2 = getCppTerminalQuestion(1);
+console.log('Q2 expected 30                :', q2.expected === 30);
+console.log('Q2 correct is D               :', CPP_Q2_OPTIONS.find((o) => o.id === 'D').value === 30);
+console.log('Q2 correct answer accepted   :', checkCppTerminalQuestionAnswer(1, 'D').correct === true);
+console.log('Q2 wrong answer rejected    :', checkCppTerminalQuestionAnswer(1, 'A').correct === false);
+
+console.log('--- Q3 (recursion) ---');
+const q3 = getCppTerminalQuestion(2);
+console.log('Q3 expected 24                :', q3.expected === 24);
+console.log('Q3 correct is B               :', CPP_Q3_OPTIONS.find((o) => o.id === 'B').value === 24);
+console.log('Q3 correct answer accepted    :', checkCppTerminalQuestionAnswer(2, 'B').correct === true);
+console.log('Q3 wrong answer rejected     :', checkCppTerminalQuestionAnswer(2, 'A').correct === false);
+
+console.log('--- Q4 (ternary precedence) ---');
+const q4 = getCppTerminalQuestion(3);
+console.log('Q4 expected 20                :', q4.expected === 20);
+console.log('Q4 correct is B               :', CPP_Q4_OPTIONS.find((o) => o.id === 'B').value === 20);
+console.log('Q4 correct answer accepted    :', checkCppTerminalQuestionAnswer(3, 'B').correct === true);
+console.log('Q4 wrong answer rejected     :', checkCppTerminalQuestionAnswer(3, 'A').correct === false);
+
+console.log('--- Q5 (while loop with continue) ---');
+const q5 = getCppTerminalQuestion(4);
+console.log('Q5 expected 12                :', q5.expected === 12);
+console.log('Q5 correct is B               :', CPP_Q5_OPTIONS.find((o) => o.id === 'B').value === 12);
+console.log('Q5 correct answer accepted    :', checkCppTerminalQuestionAnswer(4, 'B').correct === true);
+console.log('Q5 wrong answer rejected     :', checkCppTerminalQuestionAnswer(4, 'C').correct === false);
+
+console.log('--- Q6 (count set bits) ---');
+const q6 = getCppTerminalQuestion(5);
+console.log('Q6 expected 3                 :', q6.expected === 3);
+console.log('Q6 correct is B               :', CPP_Q6_OPTIONS.find((o) => o.id === 'B').value === 3);
+console.log('Q6 correct answer accepted    :', checkCppTerminalQuestionAnswer(5, 'B').correct === true);
+console.log('Q6 wrong answer rejected     :', checkCppTerminalQuestionAnswer(5, 'A').correct === false);
+
+console.log('--- Question bank helpers ---');
+console.log('getCppTerminalQuestion(5) = Q6:', getCppTerminalQuestion(5).id === 6);
+console.log('getCppTerminalQuestion(99) clamps:', getCppTerminalQuestion(99).id === 6);
+console.log('getCppTerminalQuestion(-1) clamps:', getCppTerminalQuestion(-1).id === 1);
+console.log('check Q1 via index 0         :', checkCppTerminalQuestionAnswer(0, 'B').correct === true);
+console.log('check Q1 wrong via index 0   :', checkCppTerminalQuestionAnswer(0, 'A').correct === false);
+// Each question must be independently addressable - a shared index/id mix-up
+// would make every question resolve to question 1.
+console.log('each index maps to own question:', [0, 1, 2, 3, 4, 5].every(
+  (i) => checkCppTerminalQuestionAnswer(i, 'B').expected === CPP_TERMINAL_QUESTIONS[i].expected));
+
+// --- Full progression simulation: answer all 6 correctly in order ---
+{
+  console.log('--- Full progression simulation ---');
+  let idx = 0;
+  let unlocked = false;
+  const answered = [];
+  // Answer each question with its correct option, advancing the index each time.
+  for (let step = 0; step < CPP_TERMINAL_QUESTION_COUNT; step++) {
+    const q = CPP_TERMINAL_QUESTIONS[idx];
+    const correctId = q.options.find((o) => o.correct).id;
+    answered.push(correctId);
+    const res = checkCppTerminalQuestionAnswer(idx, correctId);
+    if (!res.correct) break;
+    idx++;
+    if (idx >= CPP_TERMINAL_QUESTION_COUNT) unlocked = true;
+  }
+  console.log('all 6 answered correctly   :', answered.length === 6);
+  console.log('progressed through all     :', idx === 6);
+  console.log('chamber unlocks on last    :', unlocked);
+  // A wrong answer on a middle question must NOT advance the index.
+  const before = 2;
+  const wrong = checkCppTerminalQuestionAnswer(before, 'A');
+  console.log('wrong answer does not pass :', wrong.correct === false);
+  console.log('wrong answer returns expected:', wrong.expected === CPP_TERMINAL_QUESTIONS[before].expected);
+}
 

@@ -3,6 +3,7 @@ import { SceneManager } from './SceneManager.js';
 import { GameState } from './GameState.js';
 import { PlayerController } from '../player/PlayerController.js';
 import { Laboratory } from '../environment/Laboratory.js';
+import { makeLabelTexture } from '../environment/Materials.js';
 import { Crosshair } from '../ui/Crosshair.js';
 import { InteractionPrompt } from '../ui/InteractionPrompt.js';
 import { InteractionManager } from '../interaction/InteractionManager.js';
@@ -16,11 +17,11 @@ import { AudioManager } from '../audio/AudioManager.js';
 import { SettingsPanel, loadSettings, saveSettings } from '../ui/SettingsPanel.js';
 import { CODE_SHEET_LINES, CODE_SHEET_TITLE, CODE_SHEET_HINT } from '../puzzles/CodeSheet.js';
 import {
-  CPP_TERMINAL_TITLE,
-  CPP_TERMINAL_LINES,
-  CPP_TERMINAL_PROMPT,
-  CPP_TERMINAL_OPTIONS,
-  checkCppTerminalAnswer,
+  CERTIFICATE_ALPHA_TEXT,
+  CPP_TERMINAL_QUESTION_COUNT,
+  getCppTerminalQuestion,
+  cppTerminalTitleFor,
+  checkCppTerminalQuestionAnswer,
 } from '../puzzles/CppTerminal.js';
 
 /**
@@ -493,12 +494,35 @@ export class Game {
 
     // Room 2 C++ terminal (only reachable once the exit door is unlocked).
     const terminalIO = this.interactions.register(lab.terminalProxy, {
-      verb: 'Use',
+      verb: 'Inspect',
       label: 'Terminal',
       distance: 2.4,
       onInteract: () => this._openTerminal(),
     });
     terminalIO.hitbox.scale.set(1.4, 1.4, 1.4);
+
+    // Room 2 exit door on the far north wall — unlocks after Terminal 01.
+    if (lab.room2Door && lab.room2Door.leaf) {
+      this.interactions.register(lab.room2Door.leaf, {
+        verb: 'Open',
+        label: 'Chamber Exit',
+        distance: 3.2,
+        onInteract: () => {
+          if (!this.gameState.room2DoorUnlocked) {
+            this.audio.keypadReject();
+            this.messages.flash('Chamber exit is locked. Terminal 01 clearance required.', { tone: 'bad' });
+            return;
+          }
+          lab.room2Door.toggle();
+          if (lab.room2Door.isOpen) {
+            this.audio.doorOpen();
+            this.messages.flash('Chamber exit unsealed. Step through to complete the examination.', { tone: 'good' });
+          } else {
+            this.audio.doorClose();
+          }
+        },
+      });
+    }
 
     // Room 2 clearance certificate pickup (only reachable once the door opens).
     this._certInteraction = this.interactions.register(lab.certificateProxy, {
@@ -620,52 +644,107 @@ export class Game {
     this.messages.flash('A small brass key.', { tone: 'good' });
   }
 
-  /** Open the Room 2 C++ terminal diagnostic panel. */
+  /** Open the Room 2 C++ terminal diagnostic panel with the current question. */
   _openTerminal() {
     if (this.gameState.cppTerminalSolved) {
-      this.messages.flash('The terminal reads: DIAGNOSTIC PASSED. CLEARANCE GRANTED.', { tone: 'good' });
+      this.messages.flash('The terminal reads: EXAMINATION PASSED. EXAMINATION POWER RESTORED.', { tone: 'good' });
       return;
     }
+
+    const qIndex = this.gameState.cppTerminalCurrentQuestion || 0;
+    const question = getCppTerminalQuestion(qIndex);
 
     this.prompt.hide();
     this.messages.clear();
     this.terminalPanel.open({
-      title: CPP_TERMINAL_TITLE,
-      snippet: CPP_TERMINAL_LINES,
-      prompt: CPP_TERMINAL_PROMPT,
-      options: CPP_TERMINAL_OPTIONS,
+      title: cppTerminalTitleFor(qIndex, CPP_TERMINAL_QUESTION_COUNT),
+      snippet: question.lines,
+      prompt: question.prompt,
+      options: question.options,
     });
 
     this.terminalPanel.onSubmit = (optionId) => this._submitTerminalAnswer(optionId);
     this.terminalPanel.onClose = () => this.prompt.hide();
+    this.terminalPanel.onQuestionAdvance = () => {
+      // Re-hook the submit handler after the question rotates (same handler,
+      // but the panel's _submitted flag was reset in _renderContent).
+      this.terminalPanel.onSubmit = (optionId) => this._submitTerminalAnswer(optionId);
+    };
   }
 
-  /** Validate the terminal answer. Correct -> cppTerminalSolved + certificate unlock. */
+  /** Validate the terminal answer for the current question. On success advance the question bank. */
   _submitTerminalAnswer(optionId) {
-    const result = checkCppTerminalAnswer(optionId);
+    const qIndex = this.gameState.cppTerminalCurrentQuestion || 0;
+    const question = getCppTerminalQuestion(qIndex);
+    const result = checkCppTerminalQuestionAnswer(qIndex, optionId);
 
     if (!result.correct) {
       this.audio.keypadReject();
-      this.terminalPanel.statusEl.textContent = 'INCORRECT. Recompile and retry.';
-      this.messages.flash('Wrong answer. Check the array indices.', { tone: 'bad' });
-      // Allow another attempt: clear the submitted lock so the player can re-open.
+      this.gameState.set('terminalWrongAttempts', (this.gameState.terminalWrongAttempts || 0) + 1);
+      const wrongCount = this.gameState.terminalWrongAttempts;
+      const hint = wrongCount >= 2 ? question.hint : null;
+
+      this.terminalPanel.showError('INCORRECT. Review the code carefully.', hint);
+      this.messages.flash(hint ? 'Incorrect. Hint displayed on terminal.' : 'Wrong answer. Re-check your reasoning.', { tone: 'bad' });
+      // Allow another attempt: clear the submitted lock.
       this.terminalPanel.reset();
       return;
     }
 
-    this.gameState.set('cppTerminalSolved', true);
     this.audio.keypadAccept();
-    this.messages.flash('Diagnostic passed. Clearance certificate unlocked.', { tone: 'good' });
+    // Correct — reset wrong attempts for the next question.
+    this.gameState.set('terminalWrongAttempts', 0);
 
-    // Unlock the certificate pickup now that the terminal is solved.
+    // Advance to the next question.
+    const nextIndex = qIndex + 1;
+    const totalQuestions = CPP_TERMINAL_QUESTION_COUNT;
+
+    if (nextIndex < totalQuestions) {
+      // More questions remain — rotate the panel to the next one.
+      const nextQ = getCppTerminalQuestion(nextIndex);
+      this.gameState.set('cppTerminalCurrentQuestion', nextIndex);
+      this.terminalPanel.setQuestion({
+        title: cppTerminalTitleFor(nextIndex, CPP_TERMINAL_QUESTION_COUNT),
+        snippet: nextQ.lines,
+        prompt: nextQ.prompt,
+        options: nextQ.options,
+      });
+      this.terminalPanel.showSuccess(`Question ${qIndex + 1}/${totalQuestions} passed.`, '');
+      this.messages.flash(`Correct! Proceeding to question ${nextIndex + 1} of ${totalQuestions}.`, { tone: 'good', duration: 3000 });
+      return;
+    }
+
+    // All questions answered — unlock the chamber.
+    if (this.gameState.cppTerminalSolved) return;
+
+    this.gameState.set('cppTerminalSolved', true);
+    this.gameState.set('certificateAlpha', CERTIFICATE_ALPHA_TEXT);
+    // certificateTaken stays false until the player physically picks it up.
+
+    this.laboratory.activateTerminal();
+    // Unlock the chamber exit door now that all terminal diagnostics are solved.
+    this.gameState.set('room2DoorUnlocked', true);
+    this.laboratory.room2Door.unlock();
+    // Flip the exit sign from red (locked) to green (open).
+    if (this.laboratory.exitSignMesh) {
+      this.laboratory.exitSignMesh.material.map = makeLabelTexture('CHAMBER EXIT', '#082208', '#3bff30');
+      this.laboratory.exitSignMesh.material.emissive = 0x22ff00;
+      this.laboratory.exitSignMesh.material.emissiveIntensity = 0.8;
+      this.laboratory.exitSignMesh.material.needsUpdate = true;
+    }
+    // Certificate is available for pickup at the stand.
     if (this._certInteraction) this._certInteraction.setEnabled(true);
-
-    this.terminalPanel.close();
+    this.messages.flash('Certificate α is ready for collection at the terminal stand.', { tone: 'good', duration: 4000 });
+    this.terminalPanel.showSuccess('EXAMINATION POWER RESTORED', CERTIFICATE_ALPHA_TEXT);
+    this.messages.flash('EXAMINATION POWER RESTORED', { tone: 'good', duration: 4000 });
   }
 
   /** Take the clearance certificate from the Room 2 stand. */
   _takeCertificate() {
-    if (this.gameState.certificateTaken) return;
+    if (this.gameState.certificateTaken && this.gameState.certificateAlpha) {
+      this.messages.flash(`${this.gameState.certificateAlpha} recorded.`, { tone: 'good' });
+      return;
+    }
     if (!this.gameState.cppTerminalSolved) {
       this.audio.keypadReject();
       this.messages.flash('The certificate is locked behind the terminal diagnostic.', { tone: 'bad' });
@@ -673,12 +752,13 @@ export class Game {
     }
 
     this.gameState.set('certificateTaken', true);
+    this.gameState.set('certificateAlpha', CERTIFICATE_ALPHA_TEXT);
     this.laboratory.certificateVisible = false;
     const certMesh = this.laboratory.certificateGroup?.userData?.certificate;
     if (certMesh) certMesh.visible = false;
 
     this.audio.pickup();
-    this.messages.flash('Clearance certificate acquired.', { tone: 'good' });
+    this.messages.flash(`Clearance certificate acquired: ${CERTIFICATE_ALPHA_TEXT}`, { tone: 'good' });
   }
 
   /**
@@ -1016,19 +1096,20 @@ export class Game {
     this._tryUnlockDoor();
   }
 
-  /** Detect the player leaving the room through the open door. */
+  /**
+   * Detect the player leaving through the far Room 2 exit door.
+   * Gated on room2DoorUnlocked so the candidate can explore Room 2 freely.
+   * Escape triggers once the player steps past the open far exit door.
+   */
   _checkEscape() {
     if (this.gameState.escaped || this._escaping) return;
 
-    const lab = this.laboratory;
-    const doorOpen = lab.door.isOpen;
-    // The doorway sits at z = -6; past it the player has left the lab.
-    const throughDoorway = this.player.object.position.z < -5.6 && this.player.object.position.x < 0.9 &&
-      this.player.object.position.x > -0.9;
+    // Room 2 gate: escaping requires the chamber exit to be unlocked.
+    if (!this.gameState.room2DoorUnlocked) return;
 
-    // Room 2 gate: the corridor escape only counts once the terminal is
-    // solved and the clearance certificate is in hand.
-    if (!this.gameState.cppTerminalSolved || !this.gameState.certificateTaken) return;
+    // Success triggers as soon as the player steps into the exit corridor.
+    const throughFarExit = this.player.object.position.z < -27.6;
+    if (!throughFarExit) return;
 
     this._escaping = true;
     setTimeout(() => {
@@ -1061,15 +1142,16 @@ export class Game {
     this.player.setExitOpen(this.laboratory.door.isOpen);
     this.player.update(dt);
 
-    // Track Room 2 entry: once the player walks into the code chamber,
-    // the inRoom2 flag flips and stays true.
+    // Track Room 2 entry: once the player walks into the Proctor Chamber,
+    // the inRoom2 flag flips and introduction toasts appear.
     const p = this.player.object.position;
     const r2 = this.laboratory.room2Bounds;
     if (!this.gameState.inRoom2 &&
         p.x >= r2.minX && p.x <= r2.maxX &&
         p.z >= r2.minZ && p.z <= -13.2) {
       this.gameState.set('inRoom2', true);
-      this.messages.flash('You are now in the code chamber.', { tone: 'info' });
+      this.messages.flash('PROCTOR CHAMBER', { tone: 'info', duration: 3500 });
+      this.messages.flash('Candidate detected. Restore examination power to proceed.', { tone: 'info', duration: 4500 });
     }
 
     this.laboratory.update(dt, elapsed);

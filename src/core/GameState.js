@@ -6,7 +6,7 @@
  */
 export class GameState {
   constructor() {
-    // Progression flags
+    // Room 1: The Forgotten Laboratory progression flags
     this.hasReadCodeSheet = false;
     this.codeSolved = false;
     this.hasKey = false;
@@ -19,10 +19,14 @@ export class GameState {
     this.doorUnlocked = false;
     this.escaped = false;
 
-    // Room 2 (the code chamber reached through the exit corridor).
-    this.inRoom2 = false;          // the player has walked past the exit door
-    this.cppTerminalSolved = false; // the C++ terminal was answered correctly
-    this.certificateTaken = false;  // the clearance certificate was collected
+    // Room 2: The Proctor Chamber progression flags
+    this.inRoom2 = false;            // candidate entered Room 2
+    this.cppTerminalSolved = false;  // Station 01 C++ terminal solved correctly
+    this.cppTerminalCurrentQuestion = 0; // index into CPP_TERMINAL_QUESTIONS
+    this.terminalWrongAttempts = 0;  // incorrect attempts count (hint after 2)
+    this.certificateAlpha = null;    // Certificate Alpha value: "CERTIFICATE α — VALUE: 12"
+    this.certificateTaken = false;   // Certificate Alpha recorded
+    this.room2DoorUnlocked = false;  // Chamber exit door (locked until future phases)
 
     this._listeners = new Map();
   }
